@@ -1,0 +1,118 @@
+{
+  "projectType": "sdk-library",
+  "projectName": "AmoraDB",
+  "projectDescription": "A lightweight, file-based NoSQL database for Node.js applications with MongoDB-like query syntax and zero dependencies for core functionality.",
+  "theme": "palm",
+  "primaryColor": "#848c8e",
+  "lightColor": "#11161e",
+  "darkColor": "#cfd0d2",
+  "navigation": {
+    "tabs": [
+      {
+        "tab": "Documentation",
+        "groups": [
+          {
+            "group": "Get Started",
+            "pages": [
+              "introduction",
+              "installation",
+              "quickstart"
+            ]
+          },
+          {
+            "group": "Core Concepts",
+            "pages": [
+              "concepts/architecture",
+              "concepts/data-storage",
+              "concepts/query-language",
+              "concepts/indexing",
+              "concepts/caching",
+              "concepts/events"
+            ]
+          },
+          {
+            "group": "Guides",
+            "pages": [
+              "guides/crud-operations",
+              "guides/queries-and-filtering",
+              "guides/aggregations",
+              "guides/performance-optimization",
+              "guides/backup-and-maintenance"
+            ]
+          }
+        ]
+      },
+      {
+        "tab": "API Reference",
+        "groups": [
+          {
+            "group": "Classes",
+            "pages": [
+              "api/amoradb",
+              "api/table",
+              "api/query"
+            ]
+          },
+          {
+            "group": "Configuration",
+            "pages": [
+              "api/configuration"
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  "keyFeatures": [
+    "MongoDB-like query syntax with operators ($eq, $gt, $in, $regex, etc.)",
+    "Zero external dependencies - runs on Node.js built-ins only",
+    "File-based JSONL storage with automatic metadata tracking",
+    "Chainable query builder with sorting, pagination, and projection",
+    "In-memory LRU caching for performance optimization",
+    "Automatic indexing with hash and sorted indices",
+    "Event-driven architecture with EventEmitter",
+    "Batched asynchronous writes with automatic compaction",
+    "Aggregation operations (sum, avg, min, max, count)",
+    "Support for complex queries with AND/OR conditions"
+  ],
+  "publicApiSurface": [
+    "AmoraDB(name, options)",
+    "db.init()",
+    "db.table(name)",
+    "db.dropTable(name)",
+    "db.listTables()",
+    "db.backup(path)",
+    "db.close()",
+    "db.drop()",
+    "db.getStats()",
+    "db.optimize()",
+    "table.insert(record)",
+    "table.insertMany(records)",
+    "table.find(query)",
+    "table.findOne(query)",
+    "table.findById(id)",
+    "table.all()",
+    "table.update(id, changes)",
+    "table.updateMany(query, changes)",
+    "table.delete(id)",
+    "table.deleteMany(query)",
+    "table.count(query)",
+    "table.createIndex(field)",
+    "table.dropIndex(field)",
+    "table.flush()",
+    "table.truncate()",
+    "table.drop()",
+    "query.where(condition)",
+    "query.and(condition)",
+    "query.or(condition)",
+    "query.sort(field, order)",
+    "query.limit(n)",
+    "query.skip(n)",
+    "query.select(fields)",
+    "query.execute()",
+    "query.first()",
+    "query.count()",
+    "query.distinct(field)",
+    "query.aggregate(operations)"
+  ]
+}
