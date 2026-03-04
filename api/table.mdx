@@ -116,6 +116,28 @@ const user = await users.findById('abc-123');
 
 ---
 
+### get(id)
+
+Get a record by its ID. This is similar to `findById()` but uses multi-level caching for faster lookups.
+
+```javascript
+const user = await users.get('abc-123');
+```
+
+<ParamField path="id" type="string" required>
+  The record ID
+</ParamField>
+
+<ResponseField name="returns" type="Promise<object | null>">
+  The record, or null if not found
+</ResponseField>
+
+<Note>
+  The `get()` method checks pendingUpdates, cache, in-memory data, and finally loads from disk if needed. Use this for single-record lookups when performance is critical.
+</Note>
+
+---
+
 ### all()
 
 Get all records in the table. Returns a Query object.
