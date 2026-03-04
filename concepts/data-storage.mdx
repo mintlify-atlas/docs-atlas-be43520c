@@ -1,0 +1,466 @@
+---
+title: Data storage
+description: Understand how AmoraDB stores data in JSONL format with metadata and atomic operations
+---
+
+## JSONL file format
+
+AmoraDB stores each table as a JSONL (JSON Lines) file, where each line is a complete JSON object representing one record.
+
+### Example JSONL file
+
+Here's what `users.jsonl` looks like:
+
+```jsonl
+{"_id":"a1b2c3","_created":"2024-03-01T10:00:00.000Z","_modified":"2024-03-01T10:00:00.000Z","name":"Alice","email":"alice@example.com"}
+{"_id":"d4e5f6","_created":"2024-03-01T11:30:00.000Z","_modified":"2024-03-02T14:20:00.000Z","name":"Bob","email":"bob@example.com"}
+{"_id":"g7h8i9","_created":"2024-03-03T09:15:00.000Z","_modified":"2024-03-03T09:15:00.000Z","name":"Carol","email":"carol@example.com"}
+```
+
+<Info>
+Each line is a complete, valid JSON object. This format allows for efficient streaming and append operations.
+</Info>
+
+### Why JSONL?
+
+JSONL provides several advantages over traditional JSON arrays:
+
+- **Append-only writes**: New records are appended without rewriting the entire file
+- **Stream processing**: Large files can be read line-by-line without loading everything into memory
+- **Crash safety**: Partial writes only corrupt one line, not the entire file
+- **Simple parsing**: Each line is independently parseable
+
+## Metadata fields
+
+Every record automatically receives three metadata fields when inserted (Table.js:297-306):
+
+### `_id`
+
+Unique identifier for the record. Generated using UUID v4 if not provided:
+
+```javascript
+const id = record.id || record._id || uuidv4();
+```
+
+<Note>
+You can provide your own `id` or `_id` when inserting. If you do, make sure it's unique.
+</Note>
+
+### `_created`
+
+ISO 8601 timestamp when the record was first inserted:
+
+```javascript
+_created: timestamp  // e.g., "2024-03-04T15:30:00.000Z"
+```
+
+This field never changes after insertion (Table.js:387):
+
+```javascript
+const updated = {
+  ...record,
+  ...updates,
+  _created: record._created,  // Preserve original
+  _modified: new Date().toISOString()
+};
+```
+
+### `_modified`
+
+ISO 8601 timestamp of the most recent update:
+
+```javascript
+_modified: timestamp  // e.g., "2024-03-04T15:30:00.000Z"
+```
+
+Updated on every insert and update operation (Table.js:388).
+
+### Example record
+
+```javascript
+{
+  "_id": "f47ac10b-58cc-4372-a567-0e02b2c3d479",
+  "_created": "2024-03-01T10:00:00.000Z",
+  "_modified": "2024-03-04T15:30:00.000Z",
+  "name": "Alice Johnson",
+  "email": "alice@example.com",
+  "age": 28,
+  "status": "active"
+}
+```
+
+## File structure
+
+AmoraDB organizes files in a predictable directory structure:
+
+```
+data/
+└── {dbname}/
+    ├── _metadata.json        # Database-level metadata
+    ├── {table}.jsonl         # Record data
+    ├── {table}.meta.json     # Table metadata
+    └── {table}.jsonl.tmp     # Temporary file during compaction
+```
+
+### Database directory
+
+Created at `{dataPath}/{dbname}` (AmoraDB.js:12):
+
+```javascript
+this.dbPath = path.join(options.dataPath || './data', dbName);
+```
+
+Default location is `./data/{dbname}`.
+
+### Data file: `{table}.jsonl`
+
+Stores all records as newline-delimited JSON (Table.js:16):
+
+```javascript
+this.filePath = path.join(db.dbPath, `${name}.jsonl`);
+```
+
+Records are:
+- **Appended** on insert (Table.js:275)
+- **Marked deleted** on delete (not removed until compaction)
+- **Written to temp file** on compaction (Table.js:197)
+
+### Metadata file: `{table}.meta.json`
+
+Stores table configuration and statistics (Table.js:31-36):
+
+```json
+{
+  "autoIncrement": 1,
+  "indices": ["email", "age"],
+  "recordCount": 1523,
+  "modified": "2024-03-04T15:30:00.000Z"
+}
+```
+
+Updated during save operations (Table.js:77-84):
+
+```javascript
+async saveMetadata() {
+  this.metadata.modified = new Date().toISOString();
+  this.metadata.autoIncrement = this.autoIncrement;
+  this.metadata.indices = Array.from(this.indexManager.indices.keys());
+  this.metadata.recordCount = this.data.size;
+  
+  await fs.writeFile(this.metaPath, JSON.stringify(this.metadata, null, 2));
+}
+```
+
+### Temporary file: `{table}.jsonl.tmp`
+
+Used during compaction to safely rewrite the data file (Table.js:18):
+
+```javascript
+this.tempPath = path.join(db.dbPath, `${name}.jsonl.tmp`);
+```
+
+<Warning>
+If you see `.tmp` files persisting, a compaction operation was interrupted. These are safe to delete when the database is not running.
+</Warning>
+
+## Batched writes
+
+AmoraDB batches insert operations to minimize disk I/O (Table.js:26-29):
+
+```javascript
+this.pendingWrites = [];   // Buffer for new records
+this.batchSize = 1000;     // Flush threshold
+```
+
+### How batching works
+
+1. **Insert** adds record to `pendingWrites` array (Table.js:313):
+
+```javascript
+this.pendingWrites.push(fullRecord);
+```
+
+2. **Check batch size** (Table.js:315-317):
+
+```javascript
+if (this.pendingWrites.length >= this.batchSize) {
+  this.writeQueue = this.writeQueue.then(() => this.flushPendingWrites());
+}
+```
+
+3. **Flush** writes all pending records at once (Table.js:270-285):
+
+```javascript
+async flushPendingWrites() {
+  if (this.pendingWrites.length === 0) return;
+  
+  const lines = this.pendingWrites.map(record => JSON.stringify(record) + '\n');
+  await fs.appendFile(this.filePath, lines.join(''));
+  
+  for (const record of this.pendingWrites) {
+    this.data.set(record._id, record);
+  }
+  
+  this.pendingWrites = [];
+}
+```
+
+<Info>
+Batching reduces system calls from 1000 writes to 1 write when inserting 1000 records, significantly improving throughput.
+</Info>
+
+### Bulk inserts
+
+Use `insertMany()` for optimal performance when inserting multiple records (Table.js:323-354):
+
+```javascript
+const records = [
+  { name: 'Alice', email: 'alice@example.com' },
+  { name: 'Bob', email: 'bob@example.com' },
+  { name: 'Carol', email: 'carol@example.com' }
+];
+
+const inserted = users.insertMany(records);
+```
+
+All records are added to the same batch and flushed together.
+
+## Compaction
+
+Over time, updates and deletes create "dead" records in the JSONL file. Compaction removes these to reclaim space.
+
+### Compaction threshold
+
+Compaction triggers when pending operations exceed 30% of total records (Table.js:37):
+
+```javascript
+this.compactionThreshold = 0.3;  // 30%
+```
+
+Or when there are more than 10,000 pending operations and 60+ seconds have passed (Table.js:186-187):
+
+```javascript
+return (totalOps > this.metadata.recordCount * this.compactionThreshold) ||
+       (totalOps > 10000 && timeSinceCompaction > this.compactionInterval);
+```
+
+### Compaction process
+
+Compaction rewrites the entire JSONL file (Table.js:190-268):
+
+1. **Create temp file**:
+```javascript
+const writeStream = createWriteStream(this.tempPath);
+```
+
+2. **Stream existing file**, applying updates and skips:
+```javascript
+for await (const line of rl) {
+  const record = JSON.parse(line);
+  const id = record._id;
+  
+  if (this.pendingDeletes.has(id) || this.deletedIds.has(id)) {
+    continue;  // Skip deleted records
+  }
+  
+  const updatedRecord = this.pendingUpdates.get(id) || record;
+  writeStream.write(JSON.stringify(updatedRecord) + '\n');
+}
+```
+
+3. **Write in-memory records** not in the file:
+```javascript
+for (const [id, record] of this.data.entries()) {
+  if (!processedIds.has(id) && !this.pendingDeletes.has(id)) {
+    const updatedRecord = this.pendingUpdates.get(id) || record;
+    writeStream.write(JSON.stringify(updatedRecord) + '\n');
+  }
+}
+```
+
+4. **Atomic rename**:
+```javascript
+await fs.rename(this.tempPath, this.filePath);
+```
+
+5. **Clear pending operations**:
+```javascript
+this.pendingUpdates.clear();
+this.pendingDeletes.clear();
+this.deletedIds.clear();
+```
+
+<Note>
+Compaction is automatically scheduled via `queueSave()` when `autoSave` is enabled (default).
+</Note>
+
+## Atomic file operations
+
+AmoraDB uses atomic operations to ensure data integrity:
+
+### Atomic rename
+
+The key to safe compaction is atomic rename (Table.js:246):
+
+```javascript
+await fs.rename(this.tempPath, this.filePath);
+```
+
+On most filesystems, `rename()` is atomic - either the entire operation succeeds or fails. You never end up with a partially written file.
+
+### Error handling
+
+If compaction fails, the temp file is removed and the original remains intact (Table.js:264-266):
+
+```javascript
+catch (error) {
+  await fs.unlink(this.tempPath).catch(() => {});
+  throw error;
+}
+```
+
+### Write-ahead approach
+
+AmoraDB uses a write-ahead strategy:
+
+1. Write new data to `.tmp` file
+2. Verify write succeeded
+3. Atomically replace original file
+
+This ensures the original data is never corrupted.
+
+## Pending operations
+
+AmoraDB tracks pending changes in memory before writing to disk:
+
+### Pending writes
+
+New records waiting to be appended (Table.js:26):
+
+```javascript
+this.pendingWrites = [];  // Array of new records
+```
+
+### Pending updates
+
+Records that have been updated but not yet compacted (Table.js:27):
+
+```javascript
+this.pendingUpdates = new Map();  // id -> updated record
+```
+
+### Pending deletes
+
+Records marked for deletion but not yet removed from disk (Table.js:28):
+
+```javascript
+this.pendingDeletes = new Set();  // Set of deleted ids
+```
+
+### Deleted IDs
+
+Tracking deleted records across sessions (Table.js:30):
+
+```javascript
+this.deletedIds = new Set();  // Persistent delete tracking
+```
+
+## Memory vs. disk
+
+AmoraDB intelligently chooses between in-memory and streaming based on table size:
+
+### Small tables (≤ cacheSize)
+
+Fully loaded into memory (Table.js:46-47):
+
+```javascript
+if (this.metadata.recordCount <= this.db.options.cacheSize) {
+  await this.loadAllRecords();
+}
+```
+
+All records stored in `this.data` Map:
+
+```javascript
+this.data = new Map();  // id -> record
+```
+
+### Large tables (> cacheSize)
+
+Only indices are loaded (Table.js:49):
+
+```javascript
+else {
+  await this.buildIndicesFromFile();
+}
+```
+
+Records are loaded on-demand from disk (Table.js:139-180):
+
+```javascript
+async loadRecordById(id) {
+  const fileStream = createReadStream(this.filePath);
+  const rl = createInterface({ input: fileStream });
+
+  for await (const line of rl) {
+    const record = JSON.parse(line);
+    if (record._id === id) {
+      this.cache.set(id, record);  // Cache for next access
+      return record;
+    }
+  }
+}
+```
+
+<Info>
+The default `cacheSize` is 1000 records. Adjust this based on your memory constraints and access patterns.
+</Info>
+
+## Best practices
+
+### Batch your inserts
+
+Use `insertMany()` instead of multiple `insert()` calls:
+
+```javascript
+// Good: Single batch
+users.insertMany([
+  { name: 'Alice' },
+  { name: 'Bob' },
+  { name: 'Carol' }
+]);
+
+// Less efficient: Multiple batches
+users.insert({ name: 'Alice' });
+users.insert({ name: 'Bob' });
+users.insert({ name: 'Carol' });
+```
+
+### Flush before closing
+
+Always flush pending writes before shutting down (AmoraDB.js:210-219):
+
+```javascript
+await db.close();  // Flushes all tables automatically
+```
+
+### Monitor compaction
+
+Listen to save events to track compaction:
+
+```javascript
+users.on('save', (tableName) => {
+  console.log(`${tableName} compacted`);
+});
+```
+
+### Tune compaction threshold
+
+Adjust for your workload (Table.js:37):
+
+```javascript
+const users = db.table('users');
+users.compactionThreshold = 0.5;  // Compact less frequently
+```
+
+Lower values compact more frequently (smaller files, more I/O). Higher values compact less frequently (larger files, less I/O).

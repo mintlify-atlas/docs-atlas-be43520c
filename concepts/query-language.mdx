@@ -1,0 +1,674 @@
+---
+title: Query language
+description: Learn AmoraDB's MongoDB-style query operators and chaining methods
+---
+
+## Query operators
+
+AmoraDB implements MongoDB-style query operators for powerful data filtering. All operators are implemented in Query.js:102-119.
+
+### Comparison operators
+
+#### `$eq` - Equal to
+
+Matches values equal to a specified value:
+
+```javascript
+// Find users with age exactly 25
+const users = await db.table('users')
+  .find({ age: { $eq: 25 } })
+  .execute();
+
+// Shorthand: omit $eq
+const users = await db.table('users')
+  .find({ age: 25 })
+  .execute();
+```
+
+Implementation (Query.js:103):
+
+```javascript
+if (operator.$eq !== undefined && fieldValue !== operator.$eq) return false;
+```
+
+#### `$ne` - Not equal to
+
+Matches values not equal to a specified value:
+
+```javascript
+// Find users not in pending status
+const users = await db.table('users')
+  .find({ status: { $ne: 'pending' } })
+  .execute();
+```
+
+Implementation (Query.js:104):
+
+```javascript
+if (operator.$ne !== undefined && fieldValue === operator.$ne) return false;
+```
+
+#### `$gt` - Greater than
+
+Matches values greater than a specified value:
+
+```javascript
+// Find users older than 18
+const adults = await db.table('users')
+  .find({ age: { $gt: 18 } })
+  .execute();
+```
+
+Implementation (Query.js:105):
+
+```javascript
+if (operator.$gt !== undefined && !(fieldValue > operator.$gt)) return false;
+```
+
+<Note>
+For range queries on indexed fields, AmoraDB uses sorted indices for O(log n) lookup instead of full table scan.
+</Note>
+
+#### `$gte` - Greater than or equal to
+
+Matches values greater than or equal to a specified value:
+
+```javascript
+// Find users 18 or older
+const adults = await db.table('users')
+  .find({ age: { $gte: 18 } })
+  .execute();
+```
+
+Implementation (Query.js:106):
+
+```javascript
+if (operator.$gte !== undefined && !(fieldValue >= operator.$gte)) return false;
+```
+
+#### `$lt` - Less than
+
+Matches values less than a specified value:
+
+```javascript
+// Find users younger than 18
+const minors = await db.table('users')
+  .find({ age: { $lt: 18 } })
+  .execute();
+```
+
+Implementation (Query.js:107):
+
+```javascript
+if (operator.$lt !== undefined && !(fieldValue < operator.$lt)) return false;
+```
+
+#### `$lte` - Less than or equal to
+
+Matches values less than or equal to a specified value:
+
+```javascript
+// Find users 17 or younger
+const minors = await db.table('users')
+  .find({ age: { $lte: 17 } })
+  .execute();
+```
+
+Implementation (Query.js:108):
+
+```javascript
+if (operator.$lte !== undefined && !(fieldValue <= operator.$lte)) return false;
+```
+
+### Range queries
+
+Combine operators for range matching:
+
+```javascript
+// Find users between 18 and 65
+const workingAge = await db.table('users')
+  .find({ age: { $gte: 18, $lte: 65 } })
+  .execute();
+
+// Find posts from last week
+const lastWeek = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString();
+const recent = await db.table('posts')
+  .find({ _created: { $gte: lastWeek } })
+  .execute();
+```
+
+<Info>
+When querying on indexed numeric or date fields, range queries use binary search on sorted indices (IndexManager.js:201-222).
+</Info>
+
+### Array operators
+
+#### `$in` - In array
+
+Matches any of the values in an array:
+
+```javascript
+// Find users with specific roles
+const admins = await db.table('users')
+  .find({ role: { $in: ['admin', 'superadmin', 'moderator'] } })
+  .execute();
+
+// Find posts in multiple categories
+const posts = await db.table('posts')
+  .find({ category: { $in: ['tech', 'science', 'engineering'] } })
+  .execute();
+```
+
+Implementation (Query.js:109):
+
+```javascript
+if (operator.$in !== undefined && !operator.$in.includes(fieldValue)) return false;
+```
+
+#### `$nin` - Not in array
+
+Matches none of the values in an array:
+
+```javascript
+// Find users excluding certain roles
+const regularUsers = await db.table('users')
+  .find({ role: { $nin: ['banned', 'suspended'] } })
+  .execute();
+```
+
+Implementation (Query.js:110):
+
+```javascript
+if (operator.$nin !== undefined && operator.$nin.includes(fieldValue)) return false;
+```
+
+### String operators
+
+#### `$regex` - Regular expression
+
+Matches values using regular expressions:
+
+```javascript
+// Find users with Gmail addresses
+const gmailUsers = await db.table('users')
+  .find({ email: { $regex: '@gmail\\.com$' } })
+  .execute();
+
+// Case-insensitive search
+const users = await db.table('users')
+  .find({ name: { $regex: 'john', $options: 'i' } })
+  .execute();
+
+// Find posts containing specific keywords
+const posts = await db.table('posts')
+  .find({ title: { $regex: 'database|storage|query' } })
+  .execute();
+```
+
+Implementation (Query.js:111-114):
+
+```javascript
+if (operator.$regex !== undefined) {
+  const regex = new RegExp(operator.$regex, operator.$options || '');
+  if (!regex.test(fieldValue)) return false;
+}
+```
+
+<Warning>
+Regex queries cannot use indices and always require a full table scan. Use exact matches or `$in` when possible for better performance.
+</Warning>
+
+### Existence operators
+
+#### `$exists` - Field exists
+
+Matches documents where the field exists (or doesn't exist):
+
+```javascript
+// Find users with a phone number
+const usersWithPhone = await db.table('users')
+  .find({ phone: { $exists: true } })
+  .execute();
+
+// Find users without a bio
+const usersWithoutBio = await db.table('users')
+  .find({ bio: { $exists: false } })
+  .execute();
+```
+
+Implementation (Query.js:115-117):
+
+```javascript
+if (operator.$exists !== undefined) {
+  if ((fieldValue !== undefined) !== operator.$exists) return false;
+}
+```
+
+## Query chaining
+
+Build complex queries by chaining methods together. The Query class (Query.js:4-17) supports fluent method chaining:
+
+```javascript
+const query = new Query(data, indexManager);
+```
+
+### `where(condition)`
+
+Start or add a condition to the query (Query.js:19-35):
+
+```javascript
+// Object condition
+const users = await db.table('users')
+  .find({ age: { $gte: 18 } })
+  .execute();
+
+// Function condition
+const users = await db.table('users')
+  .find(record => record.name.startsWith('A'))
+  .execute();
+```
+
+Conditions can be objects or functions:
+
+```javascript
+where(condition) {
+  if (typeof condition === 'function') {
+    this.conditions.push(condition);
+    this.nonIndexableConditions.push(condition);
+  } else if (typeof condition === 'object') {
+    const conditionFn = this.buildCondition(condition);
+    this.conditions.push(conditionFn);
+    this.analyzeCondition(condition);
+  }
+  return this;
+}
+```
+
+### `and(condition)`
+
+Add an AND condition (Query.js:62-64):
+
+```javascript
+// These are equivalent
+const users1 = await db.table('users')
+  .find({ age: { $gte: 18 } })
+  .and({ status: 'active' })
+  .execute();
+
+const users2 = await db.table('users')
+  .find({ age: { $gte: 18 } })
+  .where({ status: 'active' })
+  .execute();
+```
+
+<Info>
+`and()` is an alias for `where()` - both add conditions that must all match.
+</Info>
+
+### `or(condition)`
+
+Add an OR condition (Query.js:66-85):
+
+```javascript
+// Find users who are admins OR moderators
+const staff = await db.table('users')
+  .find({ role: 'admin' })
+  .or({ role: 'moderator' })
+  .execute();
+
+// Find users who are verified OR have admin role
+const trusted = await db.table('users')
+  .find({ verified: true })
+  .or({ role: 'admin' })
+  .execute();
+```
+
+Implementation combines previous condition with new one:
+
+```javascript
+or(condition) {
+  const prevCondition = this.conditions.pop();
+  if (prevCondition) {
+    const condFn = typeof condition === 'object' ?
+      this.buildCondition(condition) : condition;
+    const orCondition = (record) => {
+      return prevCondition(record) || condFn(record);
+    };
+    this.conditions.push(orCondition);
+    this.nonIndexableConditions.push(orCondition);
+  }
+  return this;
+}
+```
+
+<Warning>
+OR conditions cannot use indices efficiently and may require full table scans.
+</Warning>
+
+### `sort(field, order)`
+
+Sort results by a field (Query.js:121-125):
+
+```javascript
+// Sort by age ascending
+const users = await db.table('users')
+  .find({ status: 'active' })
+  .sort('age', 'asc')
+  .execute();
+
+// Sort by created date descending (newest first)
+const posts = await db.table('posts')
+  .all()
+  .sort('_created', 'desc')
+  .execute();
+```
+
+Implementation (Query.js:272-286):
+
+```javascript
+sortResults(results) {
+  results.sort((a, b) => {
+    const aVal = a[this.sortField];
+    const bVal = b[this.sortField];
+    
+    if (aVal === bVal) return 0;
+    
+    const comparison = aVal < bVal ? -1 : 1;
+    return this.sortOrder === 'asc' ? comparison : -comparison;
+  });
+}
+```
+
+### `limit(count)`
+
+Limit the number of results (Query.js:127-130):
+
+```javascript
+// Get top 10 users by score
+const topUsers = await db.table('users')
+  .all()
+  .sort('score', 'desc')
+  .limit(10)
+  .execute();
+```
+
+For small limits with sorting, AmoraDB uses heap sort for efficiency (Query.js:273-274):
+
+```javascript
+if (this.limitCount && this.skipCount === 0 && this.limitCount < results.length / 10) {
+  this.heapSort(results, this.limitCount);
+}
+```
+
+### `skip(count)`
+
+Skip a number of results (Query.js:132-135):
+
+```javascript
+// Pagination: page 3, 20 items per page
+const page = 3;
+const pageSize = 20;
+
+const users = await db.table('users')
+  .find({ status: 'active' })
+  .sort('name', 'asc')
+  .skip((page - 1) * pageSize)
+  .limit(pageSize)
+  .execute();
+```
+
+### `select(fields)`
+
+Select specific fields to return (Query.js:137-140):
+
+```javascript
+// Only return name and email
+const users = await db.table('users')
+  .find({ status: 'active' })
+  .select(['name', 'email'])
+  .execute();
+
+// Result: [{ name: 'Alice', email: 'alice@example.com' }, ...]
+```
+
+Implementation (Query.js:350-360):
+
+```javascript
+projectFields(results) {
+  return results.map(record => {
+    const selected = {};
+    for (const field of this.selectedFields) {
+      if (field in record) {
+        selected[field] = record[field];
+      }
+    }
+    return selected;
+  });
+}
+```
+
+### `execute()`
+
+Execute the query and return results (Query.js:187-240):
+
+```javascript
+const results = await db.table('users')
+  .find({ age: { $gte: 18 } })
+  .sort('name', 'asc')
+  .limit(10)
+  .execute();
+```
+
+<Note>
+You must call `execute()` to run the query. Without it, you're just building the query object.
+</Note>
+
+### `first()`
+
+Get the first matching result (Query.js:415-419):
+
+```javascript
+// Find one user by email
+const user = await db.table('users')
+  .find({ email: 'alice@example.com' })
+  .first();
+
+if (user) {
+  console.log(user.name);
+}
+```
+
+Implementation sets limit to 1:
+
+```javascript
+async first() {
+  this.limitCount = 1;
+  const results = await this.execute();
+  return results.length > 0 ? results[0] : null;
+}
+```
+
+### `count()`
+
+Count matching records without loading them (Query.js:421-439):
+
+```javascript
+// Count active users
+const activeCount = await db.table('users')
+  .find({ status: 'active' })
+  .count();
+
+console.log(`Active users: ${activeCount}`);
+```
+
+Optimized for indexed queries (Query.js:424-435):
+
+```javascript
+if (candidateSet !== null && this.nonIndexableConditions.length === 0) {
+  if (this.table) {
+    let count = 0;
+    for (const id of candidateSet) {
+      if (!this.table.pendingDeletes.has(id)) {
+        count++;
+      }
+    }
+    return count;
+  }
+  return candidateSet.size;
+}
+```
+
+## AND/OR conditions
+
+Build complex logic with multiple conditions:
+
+### Multiple AND conditions
+
+All conditions must match:
+
+```javascript
+// Users who are active AND verified AND adults
+const users = await db.table('users')
+  .find({ status: 'active' })
+  .where({ verified: true })
+  .where({ age: { $gte: 18 } })
+  .execute();
+
+// Equivalent single condition
+const users = await db.table('users')
+  .find({ 
+    status: 'active',
+    verified: true,
+    age: { $gte: 18 }
+  })
+  .execute();
+```
+
+### OR conditions
+
+At least one condition must match:
+
+```javascript
+// Users who are admins OR verified
+const trusted = await db.table('users')
+  .find({ role: 'admin' })
+  .or({ verified: true })
+  .execute();
+```
+
+### Complex combinations
+
+Mix AND and OR:
+
+```javascript
+// (Active AND adult) OR admin
+const users = await db.table('users')
+  .find({ status: 'active', age: { $gte: 18 } })
+  .or({ role: 'admin' })
+  .execute();
+
+// For more complex logic, use function conditions
+const users = await db.table('users')
+  .find(record => {
+    const isActiveAdult = record.status === 'active' && record.age >= 18;
+    const isAdmin = record.role === 'admin';
+    const isVerifiedMod = record.verified && record.role === 'moderator';
+    return isActiveAdult || isAdmin || isVerifiedMod;
+  })
+  .execute();
+```
+
+## Real-world examples
+
+### Pagination
+
+```javascript
+async function getUsers(page = 1, pageSize = 20) {
+  const skip = (page - 1) * pageSize;
+  
+  const users = await db.table('users')
+    .find({ status: 'active' })
+    .sort('name', 'asc')
+    .skip(skip)
+    .limit(pageSize)
+    .execute();
+  
+  const total = await db.table('users')
+    .find({ status: 'active' })
+    .count();
+  
+  return {
+    users,
+    page,
+    pageSize,
+    total,
+    totalPages: Math.ceil(total / pageSize)
+  };
+}
+```
+
+### Search with filters
+
+```javascript
+async function searchPosts(query, filters = {}) {
+  let search = db.table('posts').find({});
+  
+  // Text search
+  if (query) {
+    search = search.where(record => 
+      record.title.toLowerCase().includes(query.toLowerCase()) ||
+      record.content.toLowerCase().includes(query.toLowerCase())
+    );
+  }
+  
+  // Category filter
+  if (filters.category) {
+    search = search.where({ category: filters.category });
+  }
+  
+  // Date range filter
+  if (filters.startDate) {
+    search = search.where({ _created: { $gte: filters.startDate } });
+  }
+  if (filters.endDate) {
+    search = search.where({ _created: { $lte: filters.endDate } });
+  }
+  
+  // Tag filter
+  if (filters.tags && filters.tags.length > 0) {
+    search = search.where(record => 
+      filters.tags.some(tag => record.tags?.includes(tag))
+    );
+  }
+  
+  return await search
+    .sort(filters.sortBy || '_created', filters.sortOrder || 'desc')
+    .execute();
+}
+```
+
+### Analytics queries
+
+```javascript
+// Recent active users
+const lastWeek = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString();
+const activeUsers = await db.table('users')
+  .find({ lastLogin: { $gte: lastWeek } })
+  .count();
+
+// Top contributors
+const topContributors = await db.table('users')
+  .find({ postCount: { $gt: 0 } })
+  .sort('postCount', 'desc')
+  .limit(10)
+  .select(['name', 'email', 'postCount'])
+  .execute();
+
+// Unverified users needing attention
+const unverifiedOld = await db.table('users')
+  .find({
+    verified: false,
+    _created: { $lt: lastWeek }
+  })
+  .execute();
+```

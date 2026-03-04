@@ -1,0 +1,505 @@
+---
+title: Caching
+description: Learn how AmoraDB's LRU cache speeds up record access and when to use streaming
+---
+
+## LRU cache implementation
+
+AmoraDB uses a Least Recently Used (LRU) cache to keep frequently accessed records in memory. The cache is implemented in SimpleCache.js:1-61.
+
+### Cache structure
+
+Each table has its own cache instance (Table.js:20):
+
+```javascript
+this.cache = new SimpleCache(db.options.cacheSize);
+```
+
+The cache uses a JavaScript `Map` which maintains insertion order (SimpleCache.js:4):
+
+```javascript
+class SimpleCache {
+  constructor(maxSize = 1000) {
+    this.maxSize = maxSize;
+    this.cache = new Map();
+    this.hits = 0;
+    this.misses = 0;
+  }
+}
+```
+
+<Info>
+JavaScript Maps remember insertion order, making them perfect for LRU caching. The first entry is the oldest, the last entry is the newest.
+</Info>
+
+### LRU eviction
+
+When the cache is full, the oldest entry is removed (SimpleCache.js:22-33):
+
+```javascript
+set(key, value) {
+  // Remove if exists to update position
+  if (this.cache.has(key)) {
+    this.cache.delete(key);
+  } else if (this.cache.size >= this.maxSize) {
+    // Remove oldest (first) entry
+    const firstKey = this.cache.keys().next().value;
+    this.cache.delete(firstKey);
+  }
+  
+  this.cache.set(key, value);
+}
+```
+
+### Access updates position
+
+Accessing a cached record moves it to the end (most recent) (SimpleCache.js:9-20):
+
+```javascript
+get(key) {
+  if (this.cache.has(key)) {
+    // Move to end (LRU)
+    const value = this.cache.get(key);
+    this.cache.delete(key);
+    this.cache.set(key, value);
+    this.hits++;
+    return value;
+  }
+  this.misses++;
+  return undefined;
+}
+```
+
+## Cache size configuration
+
+Configure cache size when creating the database (AmoraDB.js:16):
+
+```javascript
+const db = new AmoraDB('mydb', {
+  cacheSize: 1000  // Default: 1000 records per table
+});
+```
+
+### Choosing cache size
+
+The right cache size depends on your data and access patterns:
+
+#### Small cache (100-500)
+
+```javascript
+const db = new AmoraDB('mydb', { cacheSize: 100 });
+```
+
+**Use when:**
+- Limited memory available
+- Tables have millions of records
+- Access patterns are random (low cache hit rate)
+
+**Trade-offs:**
+- Less memory usage
+- More disk reads
+- Lower cache hit rate
+
+#### Medium cache (1000-5000)
+
+```javascript
+const db = new AmoraDB('mydb', { cacheSize: 1000 });  // Default
+```
+
+**Use when:**
+- Balanced memory and performance needs
+- Tables have thousands to hundreds of thousands of records
+- Some records accessed more frequently than others
+
+**Trade-offs:**
+- Moderate memory usage
+- Good hit rate for hot records
+- Reasonable disk read frequency
+
+#### Large cache (10000+)
+
+```javascript
+const db = new AmoraDB('mydb', { cacheSize: 10000 });
+```
+
+**Use when:**
+- Plenty of memory available
+- Tables are medium-sized (under 50k records)
+- Access patterns favor recent/popular records
+
+**Trade-offs:**
+- Higher memory usage
+- Excellent cache hit rate
+- Minimal disk reads for cached records
+
+<Warning>
+Very large cache sizes can lead to memory pressure and garbage collection overhead. Monitor your application's memory usage.
+</Warning>
+
+## When records are cached vs. streamed
+
+AmoraDB intelligently chooses between caching and streaming based on table size:
+
+### Small tables: Fully cached
+
+Tables with `recordCount <= cacheSize` are fully loaded into memory (Table.js:46-50):
+
+```javascript
+if (this.metadata.recordCount <= this.db.options.cacheSize) {
+  await this.loadAllRecords();
+} else {
+  await this.buildIndicesFromFile();
+}
+```
+
+All records stored in `this.data` Map:
+
+```javascript
+this.data = new Map();  // All records in memory
+```
+
+**Benefits:**
+- Instant access to all records
+- No disk I/O during queries
+- Fast queries without indices
+
+### Large tables: Streamed with selective caching
+
+Tables with `recordCount > cacheSize` stream from disk (Query.js:362-413):
+
+```javascript
+async streamResults() {
+  const results = [];
+  const fileStream = createReadStream(this.table.filePath);
+  const rl = createInterface({
+    input: fileStream,
+    crlfDelay: Infinity
+  });
+
+  for await (const line of rl) {
+    if (line.trim()) {
+      const record = JSON.parse(line);
+      if (!seenIds.has(record._id)) {
+        seenIds.add(record._id);
+        const actualRecord = pendingUpdates.get(record._id) || record;
+        results.push(actualRecord);
+      }
+    }
+  }
+  
+  return results;
+}
+```
+
+**Benefits:**
+- Works with tables larger than available memory
+- Only caches actively accessed records
+- Predictable memory usage
+
+### Individual record caching
+
+When loading a single record by ID, it's cached for future access (Table.js:154-180):
+
+```javascript
+async loadRecordById(id) {
+  // Check cache first
+  if (this.cache.has(id)) {
+    return this.cache.get(id);
+  }
+
+  // Stream from disk
+  const fileStream = createReadStream(this.filePath);
+  const rl = createInterface({ input: fileStream });
+
+  for await (const line of rl) {
+    const record = JSON.parse(line);
+    if (record._id === id) {
+      this.cache.set(id, record);  // Cache for next time
+      return record;
+    }
+  }
+
+  return null;
+}
+```
+
+## Cache stats and hit rates
+
+Monitor cache performance with built-in statistics:
+
+### Getting cache stats
+
+Retrieve statistics for a table's cache (SimpleCache.js:49-58):
+
+```javascript
+getStats() {
+  return {
+    size: this.cache.size,
+    maxSize: this.maxSize,
+    hits: this.hits,
+    misses: this.misses,
+    hitRate: this.hits + this.misses > 0 ? 
+      this.hits / (this.hits + this.misses) : 0
+  };
+}
+```
+
+### Example usage
+
+```javascript
+// Get stats for a specific table
+const users = db.table('users');
+const stats = users.cache.getStats();
+
+console.log(stats);
+// {
+//   size: 847,           // Current cached records
+//   maxSize: 1000,       // Maximum cache size
+//   hits: 5432,          // Successful cache hits
+//   misses: 1234,        // Cache misses (loaded from disk)
+//   hitRate: 0.815       // 81.5% hit rate
+// }
+```
+
+### Database-wide stats
+
+Get stats for all tables (AmoraDB.js:240-254):
+
+```javascript
+const stats = await db.getStats();
+
+console.log(stats);
+// {
+//   tables: 3,
+//   totalRecords: 15234,
+//   cacheStats: {
+//     users: { size: 847, maxSize: 1000, hits: 5432, misses: 1234, hitRate: 0.815 },
+//     posts: { size: 523, maxSize: 1000, hits: 2341, misses: 891, hitRate: 0.724 },
+//     comments: { size: 1000, maxSize: 1000, hits: 8765, misses: 4321, hitRate: 0.670 }
+//   }
+// }
+```
+
+### Understanding hit rate
+
+Hit rate = `hits / (hits + misses)`
+
+- **> 0.8 (80%)**: Excellent - cache is very effective
+- **0.5 - 0.8 (50-80%)**: Good - cache is helping performance
+- **< 0.5 (50%)**: Poor - consider increasing cache size or reviewing access patterns
+
+<Info>
+A low hit rate might indicate random access patterns, insufficient cache size, or a working set larger than the cache.
+</Info>
+
+## Cache behavior in operations
+
+### Insert operations
+
+New records are immediately cached (Table.js:308):
+
+```javascript
+insert(record) {
+  const id = record.id || record._id || uuidv4();
+  const fullRecord = { ...record, _id: id, _created: timestamp, _modified: timestamp };
+  
+  this.cache.set(id, fullRecord);  // Cache immediately
+  this.indexManager.updateIndices(id, null, fullRecord);
+  this.pendingWrites.push(fullRecord);
+  
+  return fullRecord;
+}
+```
+
+### Update operations
+
+Updated records replace cached versions (Table.js:391-392):
+
+```javascript
+async update(id, updates) {
+  let record = await this.get(id);
+  const updated = { ...record, ...updates, _modified: new Date().toISOString() };
+  
+  this.pendingUpdates.set(id, updated);
+  this.cache.set(id, updated);  // Update cache
+  
+  return updated;
+}
+```
+
+### Delete operations
+
+Deleted records are removed from cache (Table.js:437):
+
+```javascript
+async delete(id) {
+  const record = await this.get(id);
+  
+  this.cache.delete(id);  // Remove from cache
+  this.indexManager.removeFromIndices(id, record);
+  this.pendingDeletes.add(id);
+  
+  return true;
+}
+```
+
+### Get operations
+
+Multi-level lookup strategy (Table.js:356-375):
+
+```javascript
+async get(id) {
+  // 1. Check pending deletes
+  if (this.deletedIds.has(id) || this.pendingDeletes.has(id)) return null;
+  
+  // 2. Check pending updates (most recent)
+  if (this.pendingUpdates.has(id)) {
+    return this.pendingUpdates.get(id);
+  }
+  
+  // 3. Check cache
+  if (this.cache.has(id)) {
+    return this.cache.get(id);
+  }
+  
+  // 4. Check in-memory data
+  if (this.data.has(id)) {
+    const record = this.data.get(id);
+    this.cache.set(id, record);
+    return record;
+  }
+  
+  // 5. Load from disk (streaming)
+  const record = await this.loadRecordById(id);
+  return record;
+}
+```
+
+## Cache management
+
+### Clear cache
+
+Manually clear a table's cache (SimpleCache.js:43-47):
+
+```javascript
+const users = db.table('users');
+users.cache.clear();
+
+// Also resets stats
+const stats = users.cache.getStats();
+// { size: 0, maxSize: 1000, hits: 0, misses: 0, hitRate: 0 }
+```
+
+### Check if record is cached
+
+```javascript
+const isCached = users.cache.has('some-user-id');
+
+if (!isCached) {
+  console.log('Record will be loaded from disk');
+}
+```
+
+### Pre-warm cache
+
+Load frequently accessed records into cache:
+
+```javascript
+// Pre-load top users
+const topUserIds = ['id1', 'id2', 'id3', 'id4', 'id5'];
+
+for (const id of topUserIds) {
+  await users.get(id);  // Loads and caches
+}
+
+// Now these are in cache for fast access
+const user = await users.get('id1');  // Cache hit!
+```
+
+## Best practices
+
+### Monitor hit rates regularly
+
+```javascript
+setInterval(() => {
+  const stats = users.cache.getStats();
+  console.log(`Cache hit rate: ${(stats.hitRate * 100).toFixed(1)}%`);
+  
+  if (stats.hitRate < 0.5) {
+    console.warn('Low cache hit rate - consider increasing cacheSize');
+  }
+}, 60000);  // Every minute
+```
+
+### Tune cache size based on access patterns
+
+```javascript
+// If working set is known to be ~5000 hot records
+const db = new AmoraDB('mydb', {
+  cacheSize: 5000  // Match working set size
+});
+```
+
+### Use streaming for one-time bulk operations
+
+When processing all records once, streaming is more efficient than caching:
+
+```javascript
+// Good: Streaming doesn't fill cache with one-time records
+const stream = createReadStream(users.filePath);
+const rl = createInterface({ input: stream });
+
+for await (const line of rl) {
+  const record = JSON.parse(line);
+  // Process record without caching
+}
+```
+
+### Combine caching with indices
+
+Indices reduce disk reads by narrowing results before loading records:
+
+```javascript
+// Create index to avoid full scan
+await users.createIndex('email');
+
+// Query uses index to find IDs
+const user = await users.find({ email: 'alice@example.com' }).first();
+
+// Only one record loaded from disk (or cache)
+// Much better than scanning all records
+```
+
+<Note>
+Indices and caching work together - indices identify which records to load, cache stores recently loaded records for fast re-access.
+</Note>
+
+### Clear cache after bulk updates
+
+After updating many records, cache may contain stale data:
+
+```javascript
+// Bulk update all users
+await users.updateMany({ verified: false }, { status: 'pending' });
+
+// Cache now has mix of old and new data
+users.cache.clear();  // Force fresh loads
+
+// Or wait for LRU to naturally evict old data
+```
+
+### Don't cache entire large tables
+
+If your table has millions of records, keep `cacheSize` reasonable:
+
+```javascript
+// Bad: Trying to cache 1 million records
+const db = new AmoraDB('mydb', { cacheSize: 1000000 });
+
+// Good: Cache only hot subset
+const db = new AmoraDB('mydb', { cacheSize: 5000 });
+```
+
+<Warning>
+Setting `cacheSize` too high can cause memory issues and garbage collection pauses. Start conservative and increase based on monitoring.
+</Warning>

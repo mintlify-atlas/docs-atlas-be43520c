@@ -1,0 +1,588 @@
+---
+title: Indexing
+description: Speed up queries with hash and sorted indices that auto-detect optimal storage
+---
+
+## Index types
+
+AmoraDB supports two index types that are automatically selected based on your data (IndexManager.js:8-46):
+
+### Hash indices
+
+Used for fields with discrete values (strings, booleans, enums):
+
+```javascript
+// Hash index structure
+Map {
+  "active" => Set { "id1", "id2", "id5" },
+  "pending" => Set { "id3", "id4" },
+  "inactive" => Set { "id6" }
+}
+```
+
+**Best for:**
+- Exact match queries: `{ status: 'active' }`
+- IN queries: `{ role: { $in: ['admin', 'moderator'] } }`
+- String fields, enums, booleans
+
+**Complexity:**
+- Insert/Update: O(1)
+- Exact lookup: O(1)
+- Range queries: Not supported
+
+### Sorted indices
+
+Used for numeric or date fields that support range queries:
+
+```javascript
+// Sorted index structure
+{
+  type: 'sorted',
+  values: [
+    { value: 18, id: 'id3' },
+    { value: 25, id: 'id1' },
+    { value: 32, id: 'id2' },
+    { value: 45, id: 'id4' }
+  ],
+  map: Map { 'id1' => 25, 'id2' => 32, ... }
+}
+```
+
+**Best for:**
+- Range queries: `{ age: { $gte: 18, $lte: 65 } }`
+- Comparison queries: `{ score: { $gt: 100 } }`
+- Numeric fields, dates, timestamps
+
+**Complexity:**
+- Insert/Update: O(log n) + O(n) for insertion
+- Exact lookup: O(log n)
+- Range queries: O(log n + k) where k is result size
+
+<Info>
+AmoraDB automatically chooses the right index type when you create an index. You don't need to specify it.
+</Info>
+
+## Auto-detection of index type
+
+AmoraDB inspects your data to determine the optimal index type (IndexManager.js:49-67):
+
+```javascript
+isNumericOrDateField(data, field) {
+  if (data.size === 0) return false;
+  
+  let samples = 0;
+  let numericCount = 0;
+  
+  for (const record of data.values()) {
+    const value = this.getFieldValue(record, field);
+    if (value !== undefined) {
+      if (typeof value === 'number' || !isNaN(Date.parse(value))) {
+        numericCount++;
+      }
+      samples++;
+      if (samples >= 10) break;
+    }
+  }
+  
+  return samples > 0 && numericCount === samples;
+}
+```
+
+### Detection logic
+
+1. Sample up to 10 records with the field
+2. Check if all sampled values are:
+   - Numbers (`typeof value === 'number'`)
+   - OR valid date strings (`!isNaN(Date.parse(value))`)
+3. If 100% of samples are numeric/date → **sorted index**
+4. Otherwise → **hash index**
+
+### Examples
+
+```javascript
+// These create sorted indices
+await users.createIndex('age');        // Numbers: 18, 25, 32
+await posts.createIndex('_created');   // ISO dates: "2024-03-01T..."
+await products.createIndex('price');   // Numbers: 19.99, 29.99
+
+// These create hash indices
+await users.createIndex('status');     // Strings: "active", "pending"
+await users.createIndex('verified');   // Booleans: true, false
+await posts.createIndex('category');   // Strings: "tech", "news"
+```
+
+<Warning>
+If your field has mixed types (some numbers, some strings), AmoraDB will create a hash index which won't support range queries efficiently.
+</Warning>
+
+## Creating indices
+
+Create an index on any field to speed up queries:
+
+### `createIndex(field)`
+
+Create an index on a single field (Table.js:503-510):
+
+```javascript
+// Create index on email for fast lookups
+await users.createIndex('email');
+
+// Create index on age for range queries
+await users.createIndex('age');
+
+// Create index on nested field
+await users.createIndex('profile.country');
+```
+
+Implementation builds index from existing data (IndexManager.js:8-46):
+
+```javascript
+createIndex(field, data) {
+  const index = new Map();
+  const isRangeField = this.isNumericOrDateField(data, field);
+  
+  if (isRangeField) {
+    // Build sorted index
+    const sortedIndex = {
+      type: 'sorted',
+      values: [],
+      map: new Map()
+    };
+    
+    for (const [id, record] of data.entries()) {
+      const value = this.getFieldValue(record, field);
+      if (value !== undefined) {
+        sortedIndex.values.push({ value, id });
+        sortedIndex.map.set(id, value);
+      }
+    }
+    
+    sortedIndex.values.sort((a, b) => {
+      if (a.value < b.value) return -1;
+      if (a.value > b.value) return 1;
+      return 0;
+    });
+    
+    this.indices.set(field, sortedIndex);
+  } else {
+    // Build hash index
+    for (const [id, record] of data.entries()) {
+      const value = this.getFieldValue(record, field);
+      if (value !== undefined) {
+        if (!index.has(value)) {
+          index.set(value, new Set());
+        }
+        index.get(value).add(id);
+      }
+    }
+    this.indices.set(field, index);
+  }
+}
+```
+
+### Multiple indices
+
+Create indices on multiple fields:
+
+```javascript
+const users = db.table('users');
+
+// Index commonly queried fields
+await users.createIndex('email');
+await users.createIndex('status');
+await users.createIndex('age');
+await users.createIndex('_created');
+```
+
+<Note>
+Indices are automatically persisted in table metadata and rebuilt when the database loads.
+</Note>
+
+### Nested fields
+
+Create indices on nested object properties (IndexManager.js:224-235):
+
+```javascript
+// Data structure
+const user = {
+  _id: 'id1',
+  profile: {
+    country: 'US',
+    city: 'New York'
+  }
+};
+
+// Index nested field
+await users.createIndex('profile.country');
+
+// Query using nested field
+const usersInUS = await users
+  .find({ 'profile.country': 'US' })
+  .execute();
+```
+
+Field value extraction (IndexManager.js:224-235):
+
+```javascript
+getFieldValue(record, field) {
+  const parts = field.split('.');
+  let value = record;
+  for (const part of parts) {
+    if (value && typeof value === 'object') {
+      value = value[part];
+    } else {
+      return undefined;
+    }
+  }
+  return value;
+}
+```
+
+## Dropping indices
+
+Remove an index when no longer needed:
+
+### `dropIndex(field)`
+
+Delete an index (IndexManager.js:69-72):
+
+```javascript
+// Remove email index
+users.dropIndex('email');
+
+// Remove age index
+users.dropIndex('age');
+```
+
+Implementation (IndexManager.js:69-72):
+
+```javascript
+dropIndex(field) {
+  this.indices.delete(field);
+  return this;
+}
+```
+
+<Warning>
+Dropping an index will make queries on that field slower. Only drop indices that are no longer used.
+</Warning>
+
+## How indices speed up queries
+
+Indices provide dramatic performance improvements:
+
+### Without index: O(n) table scan
+
+```javascript
+// No index on email - scans all records
+const user = await users
+  .find({ email: 'alice@example.com' })
+  .first();
+
+// Process: Check every record's email field
+// Time: O(n) where n = total records
+```
+
+### With hash index: O(1) lookup
+
+```javascript
+// Hash index on email - direct lookup
+await users.createIndex('email');
+
+const user = await users
+  .find({ email: 'alice@example.com' })
+  .first();
+
+// Process: index.get('alice@example.com') -> Set { 'id1' }
+// Time: O(1)
+```
+
+### With sorted index: O(log n) range query
+
+```javascript
+// Sorted index on age - binary search
+await users.createIndex('age');
+
+const adults = await users
+  .find({ age: { $gte: 18, $lte: 65 } })
+  .execute();
+
+// Process: Binary search for 18, scan until 65
+// Time: O(log n + k) where k = results in range
+```
+
+## Index usage in queries
+
+Query optimizer automatically uses indices when available (Query.js:142-185):
+
+### Index selection
+
+The query analyzer identifies indexable conditions (Query.js:37-60):
+
+```javascript
+analyzeCondition(obj) {
+  for (const [key, value] of Object.entries(obj)) {
+    if (this.indexManager.hasIndex(key)) {
+      const indexType = this.indexManager.getIndexType(key);
+      
+      if (typeof value === 'object' && value !== null) {
+        const hasRangeOp = value.$gt !== undefined || value.$gte !== undefined || 
+                          value.$lt !== undefined || value.$lte !== undefined;
+        
+        if (indexType === 'sorted' && hasRangeOp) {
+          this.indexableConditions.push({ field: key, condition: value, type: 'range' });
+        } else if (value.$eq !== undefined || value.$in !== undefined) {
+          this.indexableConditions.push({ field: key, condition: value, type: 'exact' });
+        } else {
+          this.nonIndexableConditions.push(this.buildCondition({ [key]: value }));
+        }
+      } else {
+        this.indexableConditions.push({ field: key, condition: { $eq: value }, type: 'exact' });
+      }
+    } else {
+      this.nonIndexableConditions.push(this.buildCondition({ [key]: value }));
+    }
+  }
+}
+```
+
+### Index intersection
+
+Multiple indexed fields are intersected for optimal results (Query.js:142-185):
+
+```javascript
+// Both email and status are indexed
+await users.createIndex('email');
+await users.createIndex('status');
+
+const user = await users
+  .find({ 
+    email: 'alice@example.com',
+    status: 'active'
+  })
+  .first();
+
+// Process:
+// 1. Get IDs from email index: Set { 'id1', 'id7' }
+// 2. Get IDs from status index: Set { 'id1', 'id2', 'id3' }
+// 3. Intersect: Set { 'id1' }
+// 4. Load only matching records
+```
+
+Implementation (Query.js:170-181):
+
+```javascript
+if (candidateSet === null) {
+  candidateSet = ids;
+  smallestSet = ids.size;
+} else {
+  const intersection = new Set();
+  for (const id of ids) {
+    if (candidateSet.has(id)) intersection.add(id);
+  }
+  candidateSet = intersection;
+  if (candidateSet.size === 0) break;
+}
+```
+
+### Range queries on sorted indices
+
+Binary search on sorted values (IndexManager.js:201-222):
+
+```javascript
+findByRange(field, min, max, includeMin = true, includeMax = true) {
+  const index = this.indices.get(field);
+  if (!index || index.type !== 'sorted') return null;
+  
+  const results = new Set();
+  
+  for (const item of index.values) {
+    const value = item.value;
+    
+    if (min !== undefined) {
+      if (includeMin ? value < min : value <= min) continue;
+    }
+    
+    if (max !== undefined) {
+      if (includeMax ? value > max : value >= max) break;
+    }
+    
+    results.add(item.id);
+  }
+  
+  return results;
+}
+```
+
+## Index persistence
+
+Indices are saved to table metadata and rebuilt on load:
+
+### Saving indices
+
+Index names are stored in metadata (Table.js:77-84):
+
+```javascript
+async saveMetadata() {
+  this.metadata.modified = new Date().toISOString();
+  this.metadata.autoIncrement = this.autoIncrement;
+  this.metadata.indices = Array.from(this.indexManager.indices.keys());
+  this.metadata.recordCount = this.data.size;
+  
+  await fs.writeFile(this.metaPath, JSON.stringify(this.metadata, null, 2));
+}
+```
+
+Example `users.meta.json`:
+
+```json
+{
+  "autoIncrement": 1,
+  "indices": ["email", "status", "age", "_created"],
+  "recordCount": 1523,
+  "modified": "2024-03-04T15:30:00.000Z"
+}
+```
+
+### Loading indices
+
+Indices are recreated on table load (Table.js:61-74):
+
+```javascript
+async loadMetadata() {
+  try {
+    const content = await fs.readFile(this.metaPath, 'utf-8');
+    this.metadata = JSON.parse(content);
+    this.autoIncrement = this.metadata.autoIncrement || 1;
+    
+    // Recreate index structures
+    for (const field of this.metadata.indices) {
+      this.indexManager.createIndex(field, new Map());
+    }
+  } catch (error) {
+    if (error.code !== 'ENOENT') {
+      throw error;
+    }
+  }
+}
+```
+
+Then indices are populated:
+
+- Small tables: From `this.data` after loading all records (Table.js:86-111)
+- Large tables: By streaming the JSONL file (Table.js:113-137)
+
+<Info>
+Index rebuilding happens automatically on database initialization. You don't need to recreate indices manually.
+</Info>
+
+## Index maintenance
+
+Indices are automatically updated on data changes:
+
+### On insert
+
+New records are added to all indices (Table.js:309):
+
+```javascript
+this.indexManager.updateIndices(id, null, fullRecord);
+```
+
+### On update
+
+Old index entries are removed, new ones added (Table.js:393):
+
+```javascript
+this.indexManager.updateIndices(id, oldRecord, updated);
+```
+
+Implementation (IndexManager.js:74-82):
+
+```javascript
+updateIndices(id, oldRecord, newRecord) {
+  for (const [field, index] of this.indices.entries()) {
+    if (index.type === 'sorted') {
+      this.updateSortedIndex(field, index, id, oldRecord, newRecord);
+    } else {
+      this.updateHashIndex(field, index, id, oldRecord, newRecord);
+    }
+  }
+}
+```
+
+### On delete
+
+Records are removed from all indices (Table.js:438):
+
+```javascript
+this.indexManager.removeFromIndices(id, record);
+```
+
+## Best practices
+
+### Index fields you query frequently
+
+```javascript
+// Good: Index fields used in WHERE clauses
+await users.createIndex('email');     // find({ email: ... })
+await users.createIndex('status');    // find({ status: ... })
+await posts.createIndex('_created');  // find({ _created: { $gte: ... } })
+```
+
+### Don't over-index
+
+Each index adds overhead:
+
+- Memory: Stores field values and record IDs
+- Insert/update time: Must update all indices
+- Disk space: Metadata storage
+
+```javascript
+// Bad: Indexing rarely-queried fields
+await users.createIndex('middleName');    // If never queried
+await users.createIndex('shoeSize');       // If never queried
+```
+
+<Warning>
+Too many indices can slow down writes more than they speed up reads. Only index fields you actually query.
+</Warning>
+
+### Use sorted indices for ranges
+
+```javascript
+// Good: Numeric/date fields for range queries
+await users.createIndex('age');           // Numbers
+await posts.createIndex('_created');      // Dates
+await products.createIndex('price');      // Numbers
+
+// Less useful: String fields rarely need ranges
+await users.createIndex('name');          // Hash index, no range support
+```
+
+### Combine indices with query optimization
+
+```javascript
+// Best: Use indexed fields first in AND conditions
+await users.createIndex('status');
+await users.createIndex('role');
+
+const admins = await users
+  .find({ status: 'active' })      // Indexed - narrows down first
+  .where({ role: 'admin' })         // Indexed - further narrows
+  .where(u => u.lastLogin)          // Non-indexed - filters remaining
+  .execute();
+```
+
+### Monitor index usage
+
+```javascript
+// Check which indices exist
+const indices = users.indexManager.getIndices();
+console.log('Indices:', indices);
+
+// Check index types
+for (const field of indices) {
+  const type = users.indexManager.getIndexType(field);
+  console.log(`${field}: ${type}`);
+}
+```

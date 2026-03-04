@@ -1,0 +1,690 @@
+---
+title: Events
+description: Listen to database and table events for real-time notifications and monitoring
+---
+
+## Event system overview
+
+AmoraDB uses Node.js `EventEmitter` to emit events during database operations. Both `AmoraDB` and `Table` extend `EventEmitter` (AmoraDB.js:8, Table.js:11):
+
+```javascript
+class AmoraDB extends EventEmitter { /* ... */ }
+class Table extends EventEmitter { /* ... */ }
+```
+
+This allows you to listen to events at the database or table level:
+
+```javascript
+// Database-level events
+db.on('ready', () => console.log('Database initialized'));
+db.on('error', (err) => console.error('Database error:', err));
+
+// Table-level events
+const users = db.table('users');
+users.on('insert', (record) => console.log('New user:', record._id));
+users.on('update', (record) => console.log('Updated user:', record._id));
+```
+
+## Database events
+
+Events emitted by the `AmoraDB` instance:
+
+### `ready`
+
+Emitted when database initialization completes (AmoraDB.js:39):
+
+```javascript
+this.initialized = true;
+this.emit('ready', this);
+```
+
+**When it fires:**
+- After `db.init()` successfully completes
+- All tables have been loaded
+- All indices have been rebuilt
+- Database is ready for queries
+
+**Event data:**
+- `db`: The AmoraDB instance
+
+**Example usage:**
+
+```javascript
+const db = new AmoraDB('mydb');
+
+db.on('ready', (database) => {
+  console.log(`Database ${database.dbName} is ready`);
+  console.log(`Tables: ${database.tables.size}`);
+});
+
+await db.init();
+```
+
+<Info>
+Wait for the `ready` event before executing queries to ensure all tables and indices are loaded.
+</Info>
+
+### `error`
+
+Emitted when an error occurs during initialization or async operations (AmoraDB.js:41-42):
+
+```javascript
+catch (error) {
+  this.emit('error', error);
+  throw error;
+}
+```
+
+**When it fires:**
+- Initialization fails
+- Metadata loading fails
+- Table loading fails
+- Async table operations fail (via error callbacks in AmoraDB.js:182, 190)
+
+**Event data:**
+- `error`: Error object with details
+
+**Example usage:**
+
+```javascript
+db.on('error', (error) => {
+  console.error('Database error:', error.message);
+  console.error('Stack:', error.stack);
+  
+  // Send to error tracking service
+  errorTracker.report(error);
+});
+
+await db.init();
+```
+
+### `close`
+
+Emitted when database is closed (AmoraDB.js:218):
+
+```javascript
+await this.saveMetadata();
+this.emit('close');
+```
+
+**When it fires:**
+- `db.close()` is called
+- After all pending writes are flushed
+- After metadata is saved
+
+**Event data:**
+- None
+
+**Example usage:**
+
+```javascript
+db.on('close', () => {
+  console.log('Database closed gracefully');
+  // Clean up resources
+  process.exit(0);
+});
+
+// Later...
+await db.close();
+```
+
+## Table events
+
+Events emitted by `Table` instances:
+
+### `insert`
+
+Emitted when a record is inserted (Table.js:319, 349-351):
+
+```javascript
+this.emit('insert', fullRecord);
+```
+
+**When it fires:**
+- After `table.insert(record)` adds record to pending writes
+- After `table.insertMany(records)` adds all records
+- Before record is written to disk (it's in `pendingWrites`)
+
+**Event data:**
+- `record`: The full record with `_id`, `_created`, `_modified`
+
+**Example usage:**
+
+```javascript
+const users = db.table('users');
+
+users.on('insert', (record) => {
+  console.log(`New user created: ${record._id}`);
+  console.log(`Name: ${record.name}`);
+  console.log(`Email: ${record.email}`);
+  
+  // Send welcome email
+  emailService.sendWelcome(record.email);
+  
+  // Log to analytics
+  analytics.track('user_created', {
+    userId: record._id,
+    createdAt: record._created
+  });
+});
+
+users.insert({ name: 'Alice', email: 'alice@example.com' });
+```
+
+<Note>
+For `insertMany()`, the `insert` event fires once for each record inserted.
+</Note>
+
+### `update`
+
+Emitted when a record is updated (Table.js:395, 423):
+
+```javascript
+this.emit('update', updated);
+```
+
+**When it fires:**
+- After `table.update(id, updates)` modifies a record
+- After `table.updateMany(condition, updates)` modifies each record
+- Before changes are written to disk (they're in `pendingUpdates`)
+
+**Event data:**
+- `record`: The updated record with new `_modified` timestamp
+
+**Example usage:**
+
+```javascript
+users.on('update', (record) => {
+  console.log(`User ${record._id} updated at ${record._modified}`);
+  
+  // Invalidate cache
+  cache.del(`user:${record._id}`);
+  
+  // Sync to search index
+  searchIndex.update(record._id, {
+    name: record.name,
+    email: record.email
+  });
+  
+  // Audit log
+  auditLog.log('user_updated', {
+    userId: record._id,
+    timestamp: record._modified
+  });
+});
+
+await users.update('user-123', { status: 'active' });
+```
+
+### `delete`
+
+Emitted when a record is deleted (Table.js:443, 458):
+
+```javascript
+this.emit('delete', record);
+```
+
+**When it fires:**
+- After `table.delete(id)` marks record for deletion
+- After `table.deleteMany(condition)` marks each record
+- Before deletion is persisted to disk (it's in `pendingDeletes`)
+
+**Event data:**
+- `record`: The record before deletion (last known state)
+
+**Example usage:**
+
+```javascript
+users.on('delete', (record) => {
+  console.log(`User ${record._id} deleted`);
+  console.log(`Last known data:`, record);
+  
+  // Remove from search index
+  searchIndex.delete(record._id);
+  
+  // Archive to backup storage
+  archiveService.store('deleted_users', record);
+  
+  // Clean up related data
+  db.table('posts').deleteMany({ userId: record._id });
+  db.table('comments').deleteMany({ userId: record._id });
+});
+
+await users.delete('user-123');
+```
+
+<Warning>
+The `delete` event fires before data is removed from disk. The record still exists in `pendingDeletes` until compaction.
+</Warning>
+
+### `save`
+
+Emitted when table is saved/compacted to disk (Table.js:263):
+
+```javascript
+this.isDirty = false;
+this.emit('save', this.name);
+```
+
+**When it fires:**
+- After compaction completes
+- After `pendingUpdates` and `pendingDeletes` are written
+- After JSONL file is atomically replaced
+
+**Event data:**
+- `tableName`: Name of the table that was saved
+
+**Example usage:**
+
+```javascript
+users.on('save', (tableName) => {
+  console.log(`${tableName} table compacted`);
+  
+  // Create backup after save
+  backupService.backup(`${tableName}.jsonl`);
+  
+  // Log compaction event
+  logger.info('table_compacted', {
+    table: tableName,
+    timestamp: new Date().toISOString()
+  });
+});
+
+// Automatically fires when compaction threshold is reached
+```
+
+### `truncate`
+
+Emitted when table is truncated (all data deleted) (Table.js:549):
+
+```javascript
+await this.saveMetadata();
+this.emit('truncate');
+```
+
+**When it fires:**
+- After `table.truncate()` removes all data
+- After JSONL file is deleted
+- After metadata is reset
+
+**Event data:**
+- None
+
+**Example usage:**
+
+```javascript
+const logs = db.table('logs');
+
+logs.on('truncate', () => {
+  console.log('Logs table truncated');
+  
+  // Reset counters
+  metrics.reset('log_count');
+  
+  // Archive old file before truncation
+  archiveService.archive('logs.jsonl');
+});
+
+await logs.truncate();
+```
+
+### `drop`
+
+Emitted when table is dropped (deleted entirely) (Table.js:534):
+
+```javascript
+this.emit('drop');
+```
+
+**When it fires:**
+- After `table.drop()` removes all files
+- After JSONL and metadata files are deleted
+- After all in-memory data is cleared
+
+**Event data:**
+- None
+
+**Example usage:**
+
+```javascript
+const tempData = db.table('temp_data');
+
+tempData.on('drop', () => {
+  console.log('temp_data table dropped');
+  
+  // Clean up related resources
+  cache.clearNamespace('temp_data');
+  
+  // Remove from monitoring
+  monitoring.unregister('temp_data');
+});
+
+await tempData.drop();
+```
+
+## Event handler patterns
+
+### Single event listener
+
+```javascript
+users.on('insert', (record) => {
+  console.log('New user:', record._id);
+});
+```
+
+### Multiple event listeners
+
+```javascript
+// First listener: logging
+users.on('insert', (record) => {
+  logger.info('user_created', { id: record._id });
+});
+
+// Second listener: analytics
+users.on('insert', (record) => {
+  analytics.track('signup', { userId: record._id });
+});
+
+// Third listener: notifications
+users.on('insert', (record) => {
+  notificationService.sendWelcome(record.email);
+});
+```
+
+### One-time event listener
+
+```javascript
+db.once('ready', () => {
+  console.log('Database ready (fires only once)');
+});
+
+await db.init();
+```
+
+### Remove event listener
+
+```javascript
+const handler = (record) => {
+  console.log('User inserted:', record._id);
+};
+
+users.on('insert', handler);
+
+// Later...
+users.off('insert', handler);
+```
+
+### Async event handlers
+
+```javascript
+users.on('insert', async (record) => {
+  // Send email (async operation)
+  await emailService.sendWelcome(record.email);
+  
+  // Update external API (async operation)
+  await externalAPI.createUser(record);
+});
+```
+
+<Warning>
+Async event handlers run in the background. The operation that triggered the event won't wait for them to complete.
+</Warning>
+
+## Real-world use cases
+
+### Audit logging
+
+Track all data changes:
+
+```javascript
+const auditLog = db.table('audit_log');
+
+function setupAuditLogging(table, tableName) {
+  table.on('insert', (record) => {
+    auditLog.insert({
+      table: tableName,
+      action: 'insert',
+      recordId: record._id,
+      timestamp: new Date().toISOString(),
+      data: record
+    });
+  });
+  
+  table.on('update', (record) => {
+    auditLog.insert({
+      table: tableName,
+      action: 'update',
+      recordId: record._id,
+      timestamp: record._modified,
+      data: record
+    });
+  });
+  
+  table.on('delete', (record) => {
+    auditLog.insert({
+      table: tableName,
+      action: 'delete',
+      recordId: record._id,
+      timestamp: new Date().toISOString(),
+      data: record
+    });
+  });
+}
+
+// Enable audit logging for users table
+setupAuditLogging(users, 'users');
+```
+
+### Cache synchronization
+
+Keep external cache in sync:
+
+```javascript
+const Redis = require('redis');
+const redis = Redis.createClient();
+
+users.on('insert', (record) => {
+  redis.set(`user:${record._id}`, JSON.stringify(record));
+});
+
+users.on('update', (record) => {
+  redis.set(`user:${record._id}`, JSON.stringify(record));
+});
+
+users.on('delete', (record) => {
+  redis.del(`user:${record._id}`);
+});
+```
+
+### Search index synchronization
+
+Sync with ElasticSearch or similar:
+
+```javascript
+const { Client } = require('@elastic/elasticsearch');
+const esClient = new Client({ node: 'http://localhost:9200' });
+
+users.on('insert', async (record) => {
+  await esClient.index({
+    index: 'users',
+    id: record._id,
+    body: {
+      name: record.name,
+      email: record.email,
+      status: record.status
+    }
+  });
+});
+
+users.on('update', async (record) => {
+  await esClient.update({
+    index: 'users',
+    id: record._id,
+    body: {
+      doc: {
+        name: record.name,
+        email: record.email,
+        status: record.status
+      }
+    }
+  });
+});
+
+users.on('delete', async (record) => {
+  await esClient.delete({
+    index: 'users',
+    id: record._id
+  });
+});
+```
+
+### Metrics and monitoring
+
+Track database metrics:
+
+```javascript
+const metrics = {
+  inserts: 0,
+  updates: 0,
+  deletes: 0,
+  saves: 0
+};
+
+users.on('insert', () => metrics.inserts++);
+users.on('update', () => metrics.updates++);
+users.on('delete', () => metrics.deletes++);
+users.on('save', () => metrics.saves++);
+
+// Report metrics every minute
+setInterval(() => {
+  console.log('Metrics:', metrics);
+  // Reset counters
+  metrics.inserts = 0;
+  metrics.updates = 0;
+  metrics.deletes = 0;
+  metrics.saves = 0;
+}, 60000);
+```
+
+### Cascading deletes
+
+Delete related records:
+
+```javascript
+users.on('delete', async (user) => {
+  console.log(`Deleting all data for user ${user._id}`);
+  
+  // Delete user's posts
+  const posts = await db.table('posts')
+    .find({ userId: user._id })
+    .execute();
+  await db.table('posts').deleteMany({ userId: user._id });
+  
+  // Delete user's comments
+  await db.table('comments').deleteMany({ userId: user._id });
+  
+  // Delete user's sessions
+  await db.table('sessions').deleteMany({ userId: user._id });
+  
+  console.log(`Cleaned up ${posts.length} posts and related data`);
+});
+```
+
+### Real-time notifications
+
+Notify connected clients:
+
+```javascript
+const WebSocket = require('ws');
+const wss = new WebSocket.Server({ port: 8080 });
+
+users.on('insert', (record) => {
+  // Broadcast to all connected clients
+  wss.clients.forEach((client) => {
+    if (client.readyState === WebSocket.OPEN) {
+      client.send(JSON.stringify({
+        event: 'user_created',
+        data: record
+      }));
+    }
+  });
+});
+
+users.on('update', (record) => {
+  wss.clients.forEach((client) => {
+    if (client.readyState === WebSocket.OPEN) {
+      client.send(JSON.stringify({
+        event: 'user_updated',
+        data: record
+      }));
+    }
+  });
+});
+```
+
+## Best practices
+
+### Keep event handlers fast
+
+Event handlers run synchronously (unless async). Keep them quick:
+
+```javascript
+// Good: Fast, non-blocking
+users.on('insert', (record) => {
+  logger.info('user_created', { id: record._id });
+});
+
+// Bad: Slow, blocking operation
+users.on('insert', (record) => {
+  // Don't do this - blocks insert operations!
+  const result = expensiveComputation(record);
+});
+
+// Better: Async handler for slow operations
+users.on('insert', async (record) => {
+  // Runs in background, doesn't block
+  await sendEmailToAdmin(record);
+});
+```
+
+### Handle errors in async handlers
+
+```javascript
+users.on('insert', async (record) => {
+  try {
+    await externalAPI.createUser(record);
+  } catch (error) {
+    console.error('Failed to sync user:', error);
+    // Don't let external failures crash your app
+  }
+});
+```
+
+### Use events for side effects only
+
+Don't modify the record in event handlers:
+
+```javascript
+// Bad: Modifying record in event handler
+users.on('insert', async (record) => {
+  record.processed = true;  // This won't be saved!
+  await users.update(record._id, { processed: true });
+});
+
+// Good: Modify before insert
+const record = { name: 'Alice', processed: true };
+users.insert(record);
+```
+
+### Namespace your events if needed
+
+For complex apps, use namespaced event names:
+
+```javascript
+users.on('insert', (record) => {
+  // Emit more specific event
+  if (record.role === 'admin') {
+    app.emit('admin:created', record);
+  }
+});
+```

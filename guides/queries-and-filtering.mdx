@@ -1,0 +1,505 @@
+---
+title: 'Queries & Filtering'
+description: 'Master query operators, chaining, and advanced filtering in AmoraDB'
+icon: 'filter'
+---
+
+## Overview
+
+AmoraDB provides a powerful query system with MongoDB-style operators, method chaining, and automatic index optimization. Queries are built using the Query class and executed asynchronously.
+
+## Query Basics
+
+### Simple Queries
+
+Start with basic equality matching:
+
+```javascript
+// Exact match
+const user = await db.table('users').findOne({ email: 'alice@example.com' });
+
+// Multiple conditions (AND logic)
+const activeAdults = await db.table('users')
+  .find({ 
+    age: { $gte: 18 },
+    status: 'active' 
+  })
+  .execute();
+```
+
+### Query Methods
+
+<Tabs>
+  <Tab title="where()">
+    Filter records based on conditions. Can be chained for AND logic.
+    
+    ```javascript
+    const results = await db.table('products')
+      .find({})
+      .where({ category: 'electronics' })
+      .where({ inStock: true })
+      .execute();
+    ```
+  </Tab>
+  
+  <Tab title="and()">
+    Alias for `where()`. Adds additional AND conditions.
+    
+    ```javascript
+    const results = await db.table('products')
+      .find({ category: 'electronics' })
+      .and({ price: { $lt: 1000 } })
+      .and({ rating: { $gte: 4 } })
+      .execute();
+    ```
+  </Tab>
+  
+  <Tab title="or()">
+    Combine the previous condition with OR logic.
+    
+    ```javascript
+    const results = await db.table('products')
+      .find({ category: 'electronics' })
+      .or({ category: 'computers' })
+      .execute();
+    ```
+  </Tab>
+</Tabs>
+
+## Query Operators
+
+AmoraDB supports MongoDB-style query operators for powerful filtering.
+
+### Comparison Operators
+
+<CardGroup cols={2}>
+  <Card title="$eq" icon="equals">
+    Equal to (default when using direct values)
+    ```javascript
+    { age: { $eq: 25 } }
+    // Same as: { age: 25 }
+    ```
+  </Card>
+  
+  <Card title="$ne" icon="not-equal">
+    Not equal to
+    ```javascript
+    { status: { $ne: 'deleted' } }
+    ```
+  </Card>
+  
+  <Card title="$gt" icon="greater-than">
+    Greater than
+    ```javascript
+    { price: { $gt: 100 } }
+    ```
+  </Card>
+  
+  <Card title="$gte" icon="greater-than-equal">
+    Greater than or equal to
+    ```javascript
+    { age: { $gte: 18 } }
+    ```
+  </Card>
+  
+  <Card title="$lt" icon="less-than">
+    Less than
+    ```javascript
+    { stock: { $lt: 10 } }
+    ```
+  </Card>
+  
+  <Card title="$lte" icon="less-than-equal">
+    Less than or equal to
+    ```javascript
+    { price: { $lte: 999.99 } }
+    ```
+  </Card>
+</CardGroup>
+
+### Array Operators
+
+**$in** - Matches any value in an array
+
+```javascript
+const results = await db.table('products')
+  .find({ 
+    category: { $in: ['electronics', 'computers', 'phones'] } 
+  })
+  .execute();
+```
+
+**$nin** - Does not match any value in an array
+
+```javascript
+const results = await db.table('users')
+  .find({ 
+    status: { $nin: ['deleted', 'banned', 'suspended'] } 
+  })
+  .execute();
+```
+
+### Regular Expression Operator
+
+**$regex** - Match using regular expressions
+
+```javascript
+// Case-insensitive search
+const results = await db.table('users')
+  .find({ 
+    email: { $regex: '@gmail\\.com$', $options: 'i' } 
+  })
+  .execute();
+
+// Search for names starting with 'A'
+const names = await db.table('users')
+  .find({ 
+    name: { $regex: '^A' } 
+  })
+  .execute();
+```
+
+<Tip>
+Use `$options: 'i'` for case-insensitive matching.
+</Tip>
+
+### Existence Operator
+
+**$exists** - Check if a field exists
+
+```javascript
+// Find records with a phone number
+const withPhone = await db.table('users')
+  .find({ phone: { $exists: true } })
+  .execute();
+
+// Find records without a profile picture
+const noAvatar = await db.table('users')
+  .find({ avatar: { $exists: false } })
+  .execute();
+```
+
+## Combining Operators
+
+You can combine multiple operators in a single query:
+
+```javascript
+// Products priced between $100 and $500 in specific categories
+const results = await db.table('products')
+  .find({
+    price: { $gte: 100, $lte: 500 },
+    category: { $in: ['electronics', 'computers'] },
+    inStock: true,
+    rating: { $gte: 4.0 }
+  })
+  .execute();
+```
+
+## Method Chaining
+
+Build complex queries by chaining methods:
+
+### sort()
+
+Sort results by a field in ascending or descending order.
+
+```javascript
+// Sort by price ascending (default)
+const cheapest = await db.table('products')
+  .find({ category: 'electronics' })
+  .sort('price', 'asc')
+  .execute();
+
+// Sort by rating descending
+const topRated = await db.table('products')
+  .find({ category: 'electronics' })
+  .sort('rating', 'desc')
+  .execute();
+```
+
+<Tip>
+If you have an index on the sort field, sorting is more efficient.
+</Tip>
+
+### limit()
+
+Limit the number of results returned.
+
+```javascript
+// Get top 10 products
+const top10 = await db.table('products')
+  .find({ inStock: true })
+  .sort('sales', 'desc')
+  .limit(10)
+  .execute();
+```
+
+### skip()
+
+Skip a number of results (useful for pagination).
+
+```javascript
+// Get page 2 (items 11-20)
+const page2 = await db.table('products')
+  .find({ category: 'electronics' })
+  .sort('name', 'asc')
+  .skip(10)
+  .limit(10)
+  .execute();
+```
+
+**Pagination Example:**
+
+```javascript
+async function getPage(pageNumber, pageSize = 10) {
+  const skip = (pageNumber - 1) * pageSize;
+  
+  const results = await db.table('products')
+    .find({ inStock: true })
+    .sort('name', 'asc')
+    .skip(skip)
+    .limit(pageSize)
+    .execute();
+  
+  const total = await db.table('products').count({ inStock: true });
+  
+  return {
+    data: results,
+    page: pageNumber,
+    pageSize: pageSize,
+    totalPages: Math.ceil(total / pageSize),
+    totalRecords: total
+  };
+}
+
+const page1 = await getPage(1);
+const page2 = await getPage(2);
+```
+
+### select()
+
+Return only specific fields (projection).
+
+```javascript
+// Only get name and email
+const users = await db.table('users')
+  .find({ status: 'active' })
+  .select(['name', 'email'])
+  .execute();
+
+// Result: [{ name: 'Alice', email: 'alice@example.com' }, ...]
+
+// Single field
+const emails = await db.table('users')
+  .find({})
+  .select('email')
+  .execute();
+```
+
+<Warning>
+The `_id` field is not automatically included when using `select()`. Add it explicitly if needed.
+</Warning>
+
+### Complete Chaining Example
+
+```javascript
+const results = await db.table('products')
+  .find({ category: 'electronics' })
+  .where({ price: { $gte: 100, $lte: 1000 } })
+  .and({ inStock: true })
+  .sort('rating', 'desc')
+  .skip(20)
+  .limit(10)
+  .select(['name', 'price', 'rating'])
+  .execute();
+```
+
+## Advanced Queries
+
+### OR Queries
+
+Use the `or()` method to create OR conditions:
+
+```javascript
+// Find electronics OR computers
+const results = await db.table('products')
+  .find({ category: 'electronics' })
+  .or({ category: 'computers' })
+  .execute();
+
+// Complex OR with multiple conditions
+const highPriorityItems = await db.table('tasks')
+  .find({ priority: 'urgent' })
+  .or({ dueDate: { $lt: new Date().toISOString() } })
+  .execute();
+```
+
+### Function-Based Filters
+
+Pass a custom function for complex filtering logic:
+
+```javascript
+const results = await db.table('products')
+  .find((record) => {
+    const discount = (record.originalPrice - record.price) / record.originalPrice;
+    return discount > 0.5; // More than 50% off
+  })
+  .execute();
+
+// Combine with other conditions
+const deals = await db.table('products')
+  .find({ inStock: true })
+  .where((record) => {
+    return record.rating >= 4.0 && record.reviews > 100;
+  })
+  .execute();
+```
+
+<Warning>
+Function-based filters cannot use indices and will perform a full table scan.
+</Warning>
+
+## Count and Distinct
+
+### count()
+
+Count records matching a condition.
+
+```javascript
+// Count all users
+const totalUsers = await db.table('users').count();
+
+// Count with condition
+const activeUsers = await db.table('users').count({ status: 'active' });
+
+// Count with query chain
+const adultCount = await db.table('users')
+  .find({ age: { $gte: 18 } })
+  .count();
+```
+
+### distinct()
+
+Get unique values for a field.
+
+```javascript
+// Get all unique categories
+const categories = await db.table('products')
+  .find({})
+  .distinct('category');
+// Result: ['electronics', 'computers', 'phones', 'accessories']
+
+// Get unique statuses for active users
+const statuses = await db.table('users')
+  .find({ active: true })
+  .distinct('subscription');
+```
+
+## Query Optimization
+
+### Index Usage
+
+AmoraDB automatically uses indices when available:
+
+```javascript
+// Create index on frequently queried field
+await db.table('users').createIndex('email');
+
+// This query will use the index
+const user = await db.table('users')
+  .findOne({ email: 'alice@example.com' });
+```
+
+<Tip>
+Create indices on fields used in `where()` conditions for significant performance improvements.
+</Tip>
+
+### Range Queries with Indices
+
+Numeric and date fields can use sorted indices for range queries:
+
+```javascript
+// Create sorted index
+await db.table('orders').createIndex('orderDate');
+
+// Efficient range query
+const recentOrders = await db.table('orders')
+  .find({ 
+    orderDate: { 
+      $gte: '2024-01-01',
+      $lte: '2024-12-31'
+    } 
+  })
+  .execute();
+```
+
+### Performance Tips
+
+<Steps>
+  <Step title="Create indices on frequently queried fields">
+    Fields used in `where()` clauses should have indices
+  </Step>
+  
+  <Step title="Use exact matches when possible">
+    `$eq` and `$in` operators are faster than `$regex` or function filters
+  </Step>
+  
+  <Step title="Limit result sets">
+    Use `limit()` to reduce memory usage for large queries
+  </Step>
+  
+  <Step title="Avoid function-based filters for large tables">
+    Function filters cannot use indices and require full table scans
+  </Step>
+</Steps>
+
+## Query Examples
+
+<CodeGroup>
+
+```javascript E-commerce
+// Find products on sale
+const sales = await db.table('products')
+  .find({ 
+    discountPercent: { $gt: 0 },
+    inStock: true 
+  })
+  .sort('discountPercent', 'desc')
+  .limit(20)
+  .execute();
+```
+
+```javascript User Management
+// Find inactive users to archive
+const inactiveUsers = await db.table('users')
+  .find({ 
+    lastLogin: { $lt: '2023-01-01' },
+    status: 'active'
+  })
+  .select(['_id', 'email', 'lastLogin'])
+  .execute();
+```
+
+```javascript Analytics
+// Get high-value orders
+const highValueOrders = await db.table('orders')
+  .find({ 
+    total: { $gte: 1000 },
+    status: { $in: ['completed', 'shipped'] }
+  })
+  .sort('total', 'desc')
+  .execute();
+```
+
+</CodeGroup>
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Aggregations" icon="calculator" href="/guides/aggregations">
+    Perform calculations and data analysis
+  </Card>
+  <Card title="Performance Optimization" icon="gauge-high" href="/guides/performance-optimization">
+    Learn indexing strategies and optimization techniques
+  </Card>
+</CardGroup>

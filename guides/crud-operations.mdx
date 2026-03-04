@@ -1,0 +1,378 @@
+---
+title: 'CRUD Operations'
+description: 'Complete guide to Create, Read, Update, and Delete operations in AmoraDB'
+icon: 'database'
+---
+
+## Overview
+
+AmoraDB provides a comprehensive set of methods for performing CRUD (Create, Read, Update, Delete) operations on your data. All operations are asynchronous and return Promises.
+
+## Creating Records
+
+### insert()
+
+Insert a single record into a table. The method automatically adds `_id`, `_created`, and `_modified` timestamps.
+
+```javascript
+const user = await db.table('users').insert({
+  name: 'Alice Johnson',
+  email: 'alice@example.com',
+  age: 28
+});
+
+console.log(user);
+// {
+//   _id: 'a1b2c3d4-e5f6-7890-abcd-ef1234567890',
+//   name: 'Alice Johnson',
+//   email: 'alice@example.com',
+//   age: 28,
+//   _created: '2024-03-15T10:30:00.000Z',
+//   _modified: '2024-03-15T10:30:00.000Z'
+// }
+```
+
+<Tip>
+You can provide your own `_id` or `id` field. If provided, AmoraDB will use it instead of generating a UUID.
+</Tip>
+
+**Custom ID Example:**
+
+```javascript
+const product = await db.table('products').insert({
+  _id: 'prod-001',
+  name: 'Laptop',
+  price: 999.99
+});
+```
+
+### insertMany()
+
+Insert multiple records in a single operation. This is significantly faster than calling `insert()` multiple times.
+
+```javascript
+const users = await db.table('users').insertMany([
+  { name: 'Bob Smith', email: 'bob@example.com', age: 35 },
+  { name: 'Carol White', email: 'carol@example.com', age: 42 },
+  { name: 'David Brown', email: 'david@example.com', age: 29 }
+]);
+
+console.log(`Inserted ${users.length} users`);
+```
+
+<Steps>
+  <Step title="Prepare your data">
+    Create an array of objects to insert
+  </Step>
+  <Step title="Call insertMany()">
+    Pass the array to `insertMany()` for batch insertion
+  </Step>
+  <Step title="Handle the results">
+    All inserted records are returned with their generated IDs and timestamps
+  </Step>
+</Steps>
+
+**Performance Tip:**
+
+<Tip>
+By default, AmoraDB flushes writes to disk when the batch size reaches 1000 records. For large bulk inserts, records are written efficiently in batches.
+</Tip>
+
+## Reading Records
+
+### findById()
+
+Retrieve a single record by its ID. This is the fastest way to fetch a record.
+
+```javascript
+const user = await db.table('users').findById('a1b2c3d4-e5f6-7890-abcd-ef1234567890');
+
+if (user) {
+  console.log(user.name);
+} else {
+  console.log('User not found');
+}
+```
+
+### findOne()
+
+Find the first record matching a condition.
+
+```javascript
+// Find by exact match
+const user = await db.table('users').findOne({ email: 'alice@example.com' });
+
+// Find with operators
+const adult = await db.table('users').findOne({ age: { $gte: 18 } });
+
+// Returns null if not found
+if (!adult) {
+  console.log('No adults found');
+}
+```
+
+### find()
+
+Find all records matching a condition. Returns a Query object for chaining.
+
+```javascript
+// Find all users over 30
+const seniorUsers = await db.table('users')
+  .find({ age: { $gt: 30 } })
+  .execute();
+
+// Find with multiple conditions
+const activeAdults = await db.table('users')
+  .find({ 
+    age: { $gte: 18 },
+    status: 'active'
+  })
+  .execute();
+```
+
+<CodeGroup>
+
+```javascript Basic Query
+const results = await db.table('products')
+  .find({ category: 'electronics' })
+  .execute();
+```
+
+```javascript With Sorting
+const results = await db.table('products')
+  .find({ category: 'electronics' })
+  .sort('price', 'desc')
+  .execute();
+```
+
+```javascript With Pagination
+const results = await db.table('products')
+  .find({ category: 'electronics' })
+  .sort('price', 'desc')
+  .limit(10)
+  .skip(20)
+  .execute();
+```
+
+</CodeGroup>
+
+### all()
+
+Retrieve all records from a table.
+
+```javascript
+// Get all records
+const allUsers = await db.table('users').all().execute();
+
+// Can be chained with sorting and pagination
+const recentUsers = await db.table('users')
+  .all()
+  .sort('_created', 'desc')
+  .limit(10)
+  .execute();
+```
+
+## Updating Records
+
+### update()
+
+Update a single record by ID. The `_modified` timestamp is automatically updated.
+
+```javascript
+const updatedUser = await db.table('users').update(
+  'a1b2c3d4-e5f6-7890-abcd-ef1234567890',
+  { age: 29, status: 'active' }
+);
+
+if (updatedUser) {
+  console.log('User updated:', updatedUser);
+} else {
+  console.log('User not found');
+}
+```
+
+<Warning>
+The `update()` method merges the provided updates with the existing record. The `_id` and `_created` fields are preserved.
+</Warning>
+
+**Update Behavior:**
+
+```javascript
+// Original record
+// { _id: '123', name: 'Alice', age: 28, email: 'alice@example.com' }
+
+await db.table('users').update('123', { age: 29 });
+
+// Updated record
+// { _id: '123', name: 'Alice', age: 29, email: 'alice@example.com', _modified: '...' }
+```
+
+### updateMany()
+
+Update all records matching a condition.
+
+```javascript
+// Update all inactive users
+const updated = await db.table('users').updateMany(
+  { status: 'inactive' },
+  { status: 'archived' }
+);
+
+console.log(`Archived ${updated.length} users`);
+
+// Update with operators
+const promoted = await db.table('employees').updateMany(
+  { age: { $gte: 30 }, department: 'sales' },
+  { level: 'senior' }
+);
+```
+
+<Tip>
+`updateMany()` is efficient for bulk updates and uses the same query optimization as `find()`.
+</Tip>
+
+## Deleting Records
+
+### delete()
+
+Delete a single record by ID.
+
+```javascript
+const deleted = await db.table('users').delete('a1b2c3d4-e5f6-7890-abcd-ef1234567890');
+
+if (deleted) {
+  console.log('User deleted successfully');
+} else {
+  console.log('User not found');
+}
+```
+
+### deleteMany()
+
+Delete all records matching a condition.
+
+```javascript
+// Delete all archived users
+const deleted = await db.table('users').deleteMany({ status: 'archived' });
+
+console.log(`Deleted ${deleted.length} users`);
+
+// Delete with operators
+const removed = await db.table('logs').deleteMany({
+  timestamp: { $lt: '2024-01-01' }
+});
+```
+
+<Warning>
+Deletion is permanent. Consider implementing a soft delete pattern using an `isDeleted` flag if you need to recover deleted records.
+</Warning>
+
+**Soft Delete Pattern:**
+
+```javascript
+// Instead of deleting
+const user = await db.table('users').update(
+  userId,
+  { isDeleted: true, deletedAt: new Date().toISOString() }
+);
+
+// Query active records
+const activeUsers = await db.table('users')
+  .find({ isDeleted: { $ne: true } })
+  .execute();
+```
+
+## Error Handling
+
+All CRUD operations are asynchronous and can throw errors. Always wrap operations in try-catch blocks.
+
+```javascript
+try {
+  const user = await db.table('users').insert({
+    name: 'John Doe',
+    email: 'john@example.com'
+  });
+  console.log('User created:', user._id);
+} catch (error) {
+  console.error('Failed to create user:', error.message);
+}
+```
+
+**Common Error Scenarios:**
+
+<CodeGroup>
+
+```javascript Database Not Initialized
+try {
+  const user = await db.table('users').insert({ name: 'John' });
+} catch (error) {
+  // Error: Database not initialized. Call init() first.
+}
+```
+
+```javascript File System Errors
+try {
+  await db.table('users').flush();
+} catch (error) {
+  // Handle ENOSPC, EACCES, etc.
+  console.error('File system error:', error.code);
+}
+```
+
+</CodeGroup>
+
+## Batch Operations
+
+For optimal performance with multiple operations, use batch methods and manual flushing.
+
+```javascript
+const users = db.table('users');
+
+// Insert multiple records
+await users.insertMany([
+  { name: 'User 1', email: 'user1@example.com' },
+  { name: 'User 2', email: 'user2@example.com' },
+  { name: 'User 3', email: 'user3@example.com' }
+]);
+
+// Update multiple records
+await users.updateMany(
+  { status: 'pending' },
+  { status: 'active' }
+);
+
+// Force write to disk
+await users.flush();
+```
+
+<Tip>
+The default batch size is 1000 records. Pending writes are automatically flushed when this threshold is reached.
+</Tip>
+
+## Record Lifecycle
+
+Every record in AmoraDB has automatic metadata fields:
+
+```javascript
+{
+  _id: 'unique-identifier',      // Auto-generated UUID or custom ID
+  _created: '2024-03-15T10:30:00.000Z',   // Creation timestamp
+  _modified: '2024-03-15T10:35:00.000Z',  // Last modification timestamp
+  // ... your data fields
+}
+```
+
+- `_id`: Unique identifier (UUID by default)
+- `_created`: ISO 8601 timestamp when record was created (never changes)
+- `_modified`: ISO 8601 timestamp of last update (changes on every update)
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Queries & Filtering" icon="filter" href="/guides/queries-and-filtering">
+    Learn about query operators and advanced filtering
+  </Card>
+  <Card title="Aggregations" icon="calculator" href="/guides/aggregations">
+    Perform calculations and data analysis
+  </Card>
+</CardGroup>

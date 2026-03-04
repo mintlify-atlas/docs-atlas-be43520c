@@ -1,80 +1,543 @@
 ---
-title: "Quickstart"
-description: "Start building awesome documentation in minutes"
+title: Quick Start
+description: Get started with AmoraDB in minutes with this hands-on tutorial
 ---
 
-## Get started in three steps
+This guide walks you through creating your first AmoraDB application, from initializing a database to performing CRUD operations.
 
-Get your documentation site running locally and make your first customization.
+## Complete working example
 
-### Step 1: Set up your local environment
+Here's a complete example that demonstrates all the core features of AmoraDB:
 
-<AccordionGroup>
-  <Accordion icon="copy" title="Clone your docs locally">
-    During the onboarding process, you created a GitHub repository with your docs content if you didn't already have one. You can find a link to this repository in your [dashboard](https://dashboard.mintlify.com).
-    
-    To clone the repository locally so that you can make and preview changes to your docs, follow the [Cloning a repository](https://docs.github.com/en/repositories/creating-and-managing-repositories/cloning-a-repository) guide in the GitHub docs.
-  </Accordion>
-  <Accordion icon="rectangle-terminal" title="Start the preview server">
-    1. Install the Mintlify CLI: `npm i -g mint`
-    2. Navigate to your docs directory and run: `mint dev`
-    3. Open `http://localhost:3000` to see your docs live!
-    
-    <Tip>Your preview updates automatically as you edit files.</Tip>
-  </Accordion>
-</AccordionGroup>
+```javascript example.js
+const AmoraDB = require('amoradb');
 
-### Step 2: Deploy your changes
+async function main() {
+  // Initialize database
+  const db = new AmoraDB('myapp');
+  await db.init();
 
-<AccordionGroup>
-  <Accordion icon="github" title="Install our GitHub app">
-    Install the Mintlify GitHub app from your [dashboard](https://dashboard.mintlify.com/settings/organization/github-app).
-    
-    Our GitHub app automatically deploys your changes to your docs site, so you don't need to manage deployments yourself.
-</Accordion>
-<Accordion icon="palette" title="Update your site name and colors">
-    For a first change, let's update the name and colors of your docs site.
+  // Get a table reference
+  const users = db.table('users');
 
-    1. Open `docs.json` in your editor.
-    2. Change the `"name"` field to your project name.
-    3. Update the `"colors"` to match your brand.
-    4. Save and see your changes instantly at `http://localhost:3000`.
+  // Insert records
+  const user1 = users.insert({
+    name: 'Sarah Connor',
+    email: 'sarah@resistance.com',
+    age: 29
+  });
 
-    <Tip>Try changing the primary color to see an immediate difference!</Tip>
-  </Accordion>
-</AccordionGroup>
+  const user2 = users.insert({
+    name: 'John Connor',
+    email: 'john@resistance.com',
+    age: 25
+  });
 
-### Step 3: Go live
+  // Query with operators
+  const results = await users
+    .find({ age: { $gte: 18 } })
+    .sort('name', 'asc')
+    .limit(10)
+    .execute();
 
-<Accordion icon="rocket" title="Publish your docs">
-  1. Commit and push your changes.
-  2. Your docs will update and be live in moments!
+  console.log('Found users:', results);
+
+  // Update a record
+  await users.update(user1._id, { status: 'active' });
+
+  // Delete a record
+  await users.delete(user2._id);
+
+  // Close database (flushes pending writes)
+  await db.close();
+}
+
+main().catch(console.error);
+```
+
+<Note>
+Inserts are synchronous in-memory and return immediately. The data is batched to disk asynchronously, but you can query it right away.
+</Note>
+
+## Step-by-step tutorial
+
+Let's build a user management system step by step.
+
+<Steps>
+  <Step title="Initialize the database">
+    Create and initialize a new AmoraDB instance. The database name determines the directory where data files are stored.
+
+    ```javascript
+    const AmoraDB = require('amoradb');
+
+    const db = new AmoraDB('myapp');
+    await db.init();
+    ```
+
+    <Accordion title="What happens during init()?">
+    When you call `init()`, AmoraDB:
+    1. Creates the data directory if it doesn't exist (`./data/myapp/`)
+    2. Loads or creates database metadata (`_metadata.json`)
+    3. Discovers and loads existing tables from `.jsonl` files
+    4. Rebuilds indices for faster queries
+    5. Emits a `'ready'` event when complete
+
+    The `init()` call is asynchronous and returns a Promise that resolves when the database is ready.
+    </Accordion>
+  </Step>
+
+  <Step title="Create a table and insert records">
+    Get a table reference and insert your first records. Tables are created automatically on first use.
+
+    ```javascript
+    const users = db.table('users');
+
+    // Insert a single record
+    const user = users.insert({
+      name: 'Sarah Connor',
+      email: 'sarah@resistance.com',
+      age: 29,
+      role: 'admin'
+    });
+
+    console.log('Inserted user:', user);
+    ```
+
+    <Accordion title="Expected output">
+    ```javascript
+    {
+      name: 'Sarah Connor',
+      email: 'sarah@resistance.com',
+      age: 29,
+      role: 'admin',
+      _id: '550e8400-e29b-41d4-a716-446655440000',
+      _created: '2024-01-01T12:00:00.000Z',
+      _modified: '2024-01-01T12:00:00.000Z'
+    }
+    ```
+
+    Notice the automatic metadata fields:
+    - `_id`: Auto-generated UUID v4 (or you can provide your own)
+    - `_created`: ISO timestamp of record creation
+    - `_modified`: ISO timestamp of last modification
+    </Accordion>
+
+    Insert multiple records at once:
+
+    ```javascript
+    const moreUsers = users.insertMany([
+      { name: 'John Connor', email: 'john@resistance.com', age: 25 },
+      { name: 'Kyle Reese', email: 'kyle@resistance.com', age: 27 },
+      { name: 'Kate Brewster', email: 'kate@resistance.com', age: 26 }
+    ]);
+
+    console.log(`Inserted ${moreUsers.length} users`);
+    ```
+  </Step>
+
+  <Step title="Query records">
+    Use MongoDB-like query syntax to find records. All queries return a chainable query builder.
+
+    ```javascript
+    // Find all adults
+    const adults = await users
+      .find({ age: { $gte: 18 } })
+      .execute();
+
+    // Find one user by email
+    const user = await users.findOne({ email: 'sarah@resistance.com' });
+
+    // Find by ID
+    const userById = await users.findById(user._id);
+
+    // Get all records
+    const allUsers = await users.all().execute();
+    ```
+
+    <Accordion title="Expected output for adults query">
+    ```javascript
+    [
+      {
+        name: 'Sarah Connor',
+        email: 'sarah@resistance.com',
+        age: 29,
+        role: 'admin',
+        _id: '550e8400-e29b-41d4-a716-446655440000',
+        _created: '2024-01-01T12:00:00.000Z',
+        _modified: '2024-01-01T12:00:00.000Z'
+      },
+      {
+        name: 'John Connor',
+        email: 'john@resistance.com',
+        age: 25,
+        _id: '660e8400-e29b-41d4-a716-446655440001',
+        _created: '2024-01-01T12:00:05.000Z',
+        _modified: '2024-01-01T12:00:05.000Z'
+      },
+      // ... more users
+    ]
+    ```
+    </Accordion>
+  </Step>
+
+  <Step title="Use advanced query operators">
+    AmoraDB supports a rich set of query operators similar to MongoDB.
+
+    ```javascript
+    // Greater than or equal
+    const seniors = await users
+      .find({ age: { $gte: 27 } })
+      .execute();
+
+    // In array
+    const admins = await users
+      .find({ role: { $in: ['admin', 'moderator'] } })
+      .execute();
+
+    // Regex pattern matching
+    const gmailUsers = await users
+      .find({ email: { $regex: '@gmail\\.com$' } })
+      .execute();
+
+    // Multiple conditions (AND)
+    const youngAdmins = await users
+      .find({ age: { $lt: 30 } })
+      .and({ role: 'admin' })
+      .execute();
+
+    // OR conditions
+    const specialUsers = await users
+      .find({ role: 'admin' })
+      .or({ age: { $gte: 30 } })
+      .execute();
+    ```
+
+    <Info>
+    Available operators: `$eq`, `$ne`, `$gt`, `$gte`, `$lt`, `$lte`, `$in`, `$nin`, `$regex`, `$exists`
+    </Info>
+  </Step>
+
+  <Step title="Sort, paginate, and project results">
+    Chain methods to refine your query results.
+
+    ```javascript
+    // Sort by name ascending
+    const sorted = await users
+      .all()
+      .sort('name', 'asc')
+      .execute();
+
+    // Pagination with skip and limit
+    const page2 = await users
+      .all()
+      .sort('age', 'desc')
+      .skip(10)
+      .limit(10)
+      .execute();
+
+    // Select specific fields only
+    const emails = await users
+      .all()
+      .select(['email', 'name'])
+      .execute();
+
+    // Get just the first result
+    const youngest = await users
+      .all()
+      .sort('age', 'asc')
+      .first();
+
+    // Count matching records
+    const adultCount = await users
+      .find({ age: { $gte: 18 } })
+      .count();
+    ```
+
+    <Accordion title="Expected output for select query">
+    ```javascript
+    [
+      { email: 'sarah@resistance.com', name: 'Sarah Connor' },
+      { email: 'john@resistance.com', name: 'John Connor' },
+      { email: 'kyle@resistance.com', name: 'Kyle Reese' }
+      // Only selected fields are returned
+    ]
+    ```
+    </Accordion>
+  </Step>
+
+  <Step title="Update records">
+    Update single or multiple records. Updates are tracked in memory and flushed to disk automatically.
+
+    ```javascript
+    // Update a single record by ID
+    const updated = await users.update(user._id, { 
+      status: 'active',
+      lastLogin: new Date().toISOString()
+    });
+
+    // Update multiple records matching a condition
+    const updatedUsers = await users.updateMany(
+      { age: { $lt: 25 } },
+      { category: 'junior' }
+    );
+
+    console.log(`Updated ${updatedUsers.length} users`);
+    ```
+
+    <Accordion title="Expected output for single update">
+    ```javascript
+    {
+      name: 'Sarah Connor',
+      email: 'sarah@resistance.com',
+      age: 29,
+      role: 'admin',
+      status: 'active',
+      lastLogin: '2024-01-01T14:30:00.000Z',
+      _id: '550e8400-e29b-41d4-a716-446655440000',
+      _created: '2024-01-01T12:00:00.000Z',
+      _modified: '2024-01-01T14:30:00.000Z'  // Updated timestamp
+    }
+    ```
+
+    Note that `_modified` is automatically updated to reflect the current time.
+    </Accordion>
+  </Step>
+
+  <Step title="Delete records">
+    Delete records by ID or by query condition.
+
+    ```javascript
+    // Delete a single record by ID
+    const deleted = await users.delete(user._id);
+    console.log('Deleted:', deleted);  // true if found and deleted
+
+    // Delete multiple records matching a condition
+    const deletedUsers = await users.deleteMany({ 
+      status: 'inactive' 
+    });
+
+    console.log(`Deleted ${deletedUsers.length} inactive users`);
+    ```
+
+    <Warning>
+    Deletions are permanent and cannot be undone. AmoraDB does not support transactions or rollback.
+    </Warning>
+  </Step>
+
+  <Step title="Use aggregation and distinct">
+    Perform aggregations to compute statistics across your data.
+
+    ```javascript
+    // Aggregate statistics
+    const stats = await users
+      .find({ status: 'active' })
+      .aggregate({
+        totalUsers: { $count: true },
+        totalAge: { $sum: 'age' },
+        avgAge: { $avg: 'age' },
+        minAge: { $min: 'age' },
+        maxAge: { $max: 'age' }
+      });
+
+    console.log('User statistics:', stats);
+
+    // Get distinct values
+    const roles = await users.all().distinct('role');
+    console.log('Unique roles:', roles);
+    ```
+
+    <Accordion title="Expected output for aggregation">
+    ```javascript
+    {
+      totalUsers: 42,
+      totalAge: 1176,
+      avgAge: 28,
+      minAge: 21,
+      maxAge: 45
+    }
+    ```
+    </Accordion>
+  </Step>
+
+  <Step title="Close the database">
+    Always close the database when you're done to ensure all pending writes are flushed to disk.
+
+    ```javascript
+    // Close database (flushes pending writes)
+    await db.close();
+    ```
+
+    <Info>
+    The `close()` method:
+    1. Flushes all pending writes to disk
+    2. Applies pending updates and deletes
+    3. Saves metadata for all tables
+    4. Emits a `'close'` event
+    </Info>
+  </Step>
+</Steps>
+
+## Working with indices
+
+Indices dramatically improve query performance for frequently accessed fields.
+
+```javascript
+// Create an index on email field
+await users.createIndex('email');
+
+// Create an index on age (for range queries)
+await users.createIndex('age');
+
+// Queries now use indices automatically
+const user = await users.findOne({ email: 'sarah@resistance.com' });
+const adults = await users.find({ age: { $gte: 18 } }).execute();
+
+// Remove an index when no longer needed
+users.dropIndex('email');
+```
+
+<Note>
+AmoraDB automatically detects index types: numeric and date fields get sorted indices (binary search for range queries), while string fields get hash indices (fast equality lookups).
+</Note>
+
+## Event handling
+
+Listen to database and table events to react to data changes.
+
+```javascript
+// Table events
+users.on('insert', (record) => {
+  console.log('New user inserted:', record.name);
+});
+
+users.on('update', (record) => {
+  console.log('User updated:', record.name);
+});
+
+users.on('delete', (record) => {
+  console.log('User deleted:', record.name);
+});
+
+// Database events
+db.on('ready', (db) => {
+  console.log('Database is ready');
+});
+
+db.on('error', (err) => {
+  console.error('Database error:', err);
+});
+
+db.on('close', () => {
+  console.log('Database closed');
+});
+```
+
+## Complete application example
+
+Here's a complete example that combines everything we've learned:
+
+```javascript app.js
+const AmoraDB = require('amoradb');
+
+async function buildUserManagementSystem() {
+  // Initialize database with custom options
+  const db = new AmoraDB('user-system', {
+    cacheSize: 2000,
+    dataPath: './data'
+  });
+  await db.init();
+
+  // Set up event handlers
+  db.on('ready', () => console.log('✓ Database ready'));
+  db.on('error', (err) => console.error('✗ Database error:', err));
+
+  // Get table and create indices
+  const users = db.table('users');
+  await users.createIndex('email');
+  await users.createIndex('age');
+
+  // Listen to user events
+  users.on('insert', (user) => {
+    console.log(`→ User registered: ${user.name}`);
+  });
+
+  // Insert sample data
+  const sampleUsers = users.insertMany([
+    { name: 'Sarah Connor', email: 'sarah@resistance.com', age: 29, role: 'admin' },
+    { name: 'John Connor', email: 'john@resistance.com', age: 25, role: 'user' },
+    { name: 'Kyle Reese', email: 'kyle@resistance.com', age: 27, role: 'user' }
+  ]);
+
+  // Query with complex conditions
+  const results = await users
+    .find({ age: { $gte: 25, $lte: 30 } })
+    .and({ role: { $in: ['admin', 'user'] } })
+    .sort('age', 'desc')
+    .select(['name', 'email', 'age'])
+    .execute();
+
+  console.log('\nQuery results:', results);
+
+  // Compute statistics
+  const stats = await users.all().aggregate({
+    totalUsers: { $count: true },
+    avgAge: { $avg: 'age' },
+    minAge: { $min: 'age' },
+    maxAge: { $max: 'age' }
+  });
+
+  console.log('\nUser statistics:', stats);
+
+  // Get database stats
+  const dbStats = await db.getStats();
+  console.log('\nDatabase stats:', dbStats);
+
+  // Close gracefully
+  await db.close();
+  console.log('\n✓ Application complete');
+}
+
+buildUserManagementSystem().catch(console.error);
+```
+
+<Accordion title="Expected output">
+```
+✓ Database ready
+→ User registered: Sarah Connor
+→ User registered: John Connor
+→ User registered: Kyle Reese
+
+Query results: [
+  { name: 'Sarah Connor', email: 'sarah@resistance.com', age: 29 },
+  { name: 'Kyle Reese', email: 'kyle@resistance.com', age: 27 },
+  { name: 'John Connor', email: 'john@resistance.com', age: 25 }
+]
+
+User statistics: {
+  totalUsers: 3,
+  avgAge: 27,
+  minAge: 25,
+  maxAge: 29
+}
+
+Database stats: {
+  tables: 1,
+  totalRecords: 3,
+  cacheStats: {
+    users: { size: 3, maxSize: 2000, hits: 15, misses: 0, hitRate: 1 }
+  }
+}
+
+✓ Application complete
+```
 </Accordion>
 
 ## Next steps
 
-Now that you have your docs running, explore these key features:
+Now that you understand the basics, explore more advanced topics:
 
-<CardGroup cols={2}>
-
-<Card title="Write Content" icon="pen-to-square" href="/essentials/markdown">
-  Learn MDX syntax and start writing your documentation.
-</Card>
-
-<Card title="Customize style" icon="palette" href="/essentials/settings">
-  Make your docs match your brand perfectly.
-</Card>
-
-<Card title="Add code examples" icon="square-code" href="/essentials/code">
-  Include syntax-highlighted code blocks.
-</Card>
-
-<Card title="API documentation" icon="code" href="/api-reference/introduction">
-  Auto-generate API docs from OpenAPI specs.
-</Card>
-
-</CardGroup>
-
-<Note>
-  **Need help?** See our [full documentation](https://mintlify.com/docs) or join our [community](https://mintlify.com/community).
-</Note>
+- **[Query Language](/queries)**: Learn all available query operators and techniques
+- **[Indexing Guide](/indexing)**: Optimize query performance with indices
+- **[Table Operations](/tables)**: Master table management, backups, and optimization
+- **[API Reference](/api-reference)**: Complete method documentation
+- **[Best Practices](/best-practices)**: Learn patterns for production applications

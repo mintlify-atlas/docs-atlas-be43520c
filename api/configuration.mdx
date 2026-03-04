@@ -1,0 +1,386 @@
+---
+title: 'Configuration'
+description: 'Database and table configuration options'
+icon: 'gear'
+---
+
+## Database Options
+
+Configure AmoraDB behavior when creating a new database instance.
+
+```javascript
+const db = new AmoraDB('myapp', {
+  dataPath: './data',
+  cacheSize: 2000,
+  autoSave: true,
+  indexAutoCreate: true,
+  compression: false
+});
+```
+
+### dataPath
+
+<ParamField path="dataPath" type="string" default="./data">
+  Directory path where database files will be stored. The directory will be created if it doesn't exist.
+</ParamField>
+
+**Example:**
+
+```javascript
+const db = new AmoraDB('myapp', {
+  dataPath: '/var/lib/myapp/data'
+});
+```
+
+---
+
+### cacheSize
+
+<ParamField path="cacheSize" type="number" default="1000">
+  Maximum number of records to keep in memory cache per table. Higher values improve read performance but use more memory.
+</ParamField>
+
+**Example:**
+
+```javascript
+const db = new AmoraDB('myapp', {
+  cacheSize: 5000  // Cache up to 5000 records per table
+});
+```
+
+**Recommendations:**
+- Small datasets (less than 10K records): 1000-2000
+- Medium datasets (10K-100K records): 2000-5000
+- Large datasets (more than 100K records): 5000-10000
+
+---
+
+### autoSave
+
+<ParamField path="autoSave" type="boolean" default="true">
+  Enable automatic saving of changes to disk. When enabled, changes are automatically flushed to disk after a short delay.
+</ParamField>
+
+**Example:**
+
+```javascript
+const db = new AmoraDB('myapp', {
+  autoSave: false  // Manual control over when to save
+});
+
+// Manually flush changes
+await table.flush();
+```
+
+<Warning>
+  When `autoSave` is disabled, you must manually call `table.flush()` or `db.close()` to persist changes to disk.
+</Warning>
+
+---
+
+### indexAutoCreate
+
+<ParamField path="indexAutoCreate" type="boolean" default="true">
+  Automatically create indices for frequently queried fields. This can improve query performance but uses additional memory.
+</ParamField>
+
+**Example:**
+
+```javascript
+const db = new AmoraDB('myapp', {
+  indexAutoCreate: false  // Manually control index creation
+});
+
+// Manually create indices
+await users.createIndex('email');
+await users.createIndex('status');
+```
+
+---
+
+### compression
+
+<ParamField path="compression" type="boolean" default="false">
+  Enable compression for stored data. Reduces disk space usage but adds CPU overhead for read/write operations.
+</ParamField>
+
+**Example:**
+
+```javascript
+const db = new AmoraDB('myapp', {
+  compression: true  // Enable compression
+});
+```
+
+<Note>
+  Compression is most beneficial for databases with large text fields or when disk space is limited.
+</Note>
+
+## Configuration Profiles
+
+### Development Profile
+
+Optimized for quick iteration and debugging.
+
+```javascript
+const db = new AmoraDB('myapp', {
+  dataPath: './dev-data',
+  cacheSize: 500,
+  autoSave: true,
+  indexAutoCreate: true,
+  compression: false
+});
+```
+
+### Production Profile
+
+Optimized for performance and reliability.
+
+```javascript
+const db = new AmoraDB('myapp', {
+  dataPath: '/var/lib/myapp/data',
+  cacheSize: 5000,
+  autoSave: true,
+  indexAutoCreate: true,
+  compression: false
+});
+```
+
+### High-Performance Profile
+
+Maximize read/write performance with larger cache.
+
+```javascript
+const db = new AmoraDB('myapp', {
+  dataPath: '/var/lib/myapp/data',
+  cacheSize: 10000,
+  autoSave: true,
+  indexAutoCreate: true,
+  compression: false
+});
+```
+
+### Low-Memory Profile
+
+Minimize memory usage for resource-constrained environments.
+
+```javascript
+const db = new AmoraDB('myapp', {
+  dataPath: './data',
+  cacheSize: 100,
+  autoSave: true,
+  indexAutoCreate: false,
+  compression: true
+});
+```
+
+### Disk-Constrained Profile
+
+Minimize disk space usage.
+
+```javascript
+const db = new AmoraDB('myapp', {
+  dataPath: './data',
+  cacheSize: 2000,
+  autoSave: true,
+  indexAutoCreate: false,
+  compression: true
+});
+```
+
+## Table Configuration
+
+Table behavior is primarily controlled by database-level options, but some settings can be adjusted at the table level through internal properties.
+
+### Batch Size
+
+The number of records to batch before flushing to disk.
+
+```javascript
+const users = db.table('users');
+// Internal property (not typically modified)
+// users.batchSize = 1000;
+```
+
+<Note>
+  The default batch size of 1000 is optimized for most use cases. Modifying internal properties is not recommended unless you have specific performance requirements.
+</Note>
+
+### Compaction Settings
+
+Control when table files are compacted to reclaim space from deleted records.
+
+```javascript
+const users = db.table('users');
+// Internal properties (not typically modified)
+// users.compactionThreshold = 0.3;  // Compact when 30% of operations are updates/deletes
+// users.compactionInterval = 60000; // Minimum 60 seconds between compactions
+```
+
+## Environment-Specific Configuration
+
+Use environment variables to configure the database:
+
+```javascript
+const db = new AmoraDB(process.env.DB_NAME || 'myapp', {
+  dataPath: process.env.DB_PATH || './data',
+  cacheSize: parseInt(process.env.DB_CACHE_SIZE || '2000'),
+  autoSave: process.env.DB_AUTO_SAVE !== 'false',
+  compression: process.env.DB_COMPRESSION === 'true'
+});
+```
+
+### Docker Example
+
+```dockerfile
+FROM node:18
+WORKDIR /app
+
+ENV DB_NAME=myapp
+ENV DB_PATH=/app/data
+ENV DB_CACHE_SIZE=5000
+ENV DB_COMPRESSION=false
+
+COPY . .
+RUN npm install
+
+VOLUME /app/data
+
+CMD ["node", "index.js"]
+```
+
+### Docker Compose Example
+
+```yaml
+version: '3.8'
+services:
+  app:
+    build: .
+    environment:
+      - DB_NAME=myapp
+      - DB_PATH=/app/data
+      - DB_CACHE_SIZE=5000
+      - DB_AUTO_SAVE=true
+      - DB_COMPRESSION=false
+    volumes:
+      - ./data:/app/data
+```
+
+## Performance Tuning
+
+### Memory vs. Disk Trade-offs
+
+| Cache Size | Memory Usage | Read Performance | Best For |
+|------------|--------------|------------------|----------|
+| 100 | ~1-2 MB | Lower | Embedded devices, containers |
+| 1000 | ~10-20 MB | Good | Default usage |
+| 5000 | ~50-100 MB | Better | Production applications |
+| 10000 | ~100-200 MB | Best | High-traffic applications |
+
+### Index Strategy
+
+<Tip>
+  Create indices on fields that are:
+  - Frequently used in `where()` conditions
+  - Used for sorting with `sort()`
+  - Used in `findOne()` or `findById()` queries
+  
+  Avoid creating indices on:
+  - Fields that are rarely queried
+  - Fields with high cardinality (many unique values)
+  - Large text fields
+</Tip>
+
+### Compression Guidelines
+
+**Enable compression when:**
+- Disk space is limited
+- Records contain large text fields
+- Network transfer of database files is needed
+- Read/write frequency is low to moderate
+
+**Disable compression when:**
+- CPU resources are limited
+- Maximum read/write performance is required
+- Disk space is abundant
+- Records are already compressed (images, etc.)
+
+## Best Practices
+
+1. **Start with defaults**: The default configuration works well for most applications.
+
+2. **Profile before optimizing**: Use `db.getStats()` to understand your workload before adjusting settings.
+
+3. **Adjust cache size based on dataset**: Set `cacheSize` to ~10% of your total record count.
+
+4. **Use indices strategically**: Create indices on commonly queried fields but avoid over-indexing.
+
+5. **Enable autoSave in production**: Ensures data is persisted reliably.
+
+6. **Test with compression**: Measure the impact of compression on your specific workload.
+
+7. **Monitor memory usage**: Adjust `cacheSize` if memory usage is too high.
+
+## Example Configurations
+
+### E-commerce Application
+
+```javascript
+const db = new AmoraDB('ecommerce', {
+  dataPath: '/var/lib/ecommerce/data',
+  cacheSize: 5000,
+  autoSave: true,
+  indexAutoCreate: true,
+  compression: false
+});
+
+await db.init();
+
+// Create indices for common queries
+const products = db.table('products');
+await products.createIndex('category');
+await products.createIndex('price');
+await products.createIndex('sku');
+
+const orders = db.table('orders');
+await orders.createIndex('customerId');
+await orders.createIndex('status');
+await orders.createIndex('createdAt');
+```
+
+### Analytics Application
+
+```javascript
+const db = new AmoraDB('analytics', {
+  dataPath: '/var/lib/analytics/data',
+  cacheSize: 10000,
+  autoSave: true,
+  indexAutoCreate: true,
+  compression: true  // Compress historical data
+});
+
+await db.init();
+
+const events = db.table('events');
+await events.createIndex('eventType');
+await events.createIndex('userId');
+await events.createIndex('timestamp');
+```
+
+### IoT Application
+
+```javascript
+const db = new AmoraDB('iot', {
+  dataPath: '/data/iot',
+  cacheSize: 500,  // Limited memory on device
+  autoSave: true,
+  indexAutoCreate: false,  // Manually control indices
+  compression: true  // Save space on device
+});
+
+await db.init();
+
+const readings = db.table('readings');
+await readings.createIndex('deviceId');
+await readings.createIndex('timestamp');
+```

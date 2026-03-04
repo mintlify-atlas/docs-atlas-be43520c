@@ -1,0 +1,278 @@
+---
+title: 'AmoraDB'
+description: 'Main database class for managing collections and database operations'
+icon: 'database'
+---
+
+## Constructor
+
+Create a new AmoraDB instance.
+
+```javascript
+const db = new AmoraDB(dbName, options);
+```
+
+<ParamField path="dbName" type="string" required>
+  Name of the database
+</ParamField>
+
+<ParamField path="options" type="object">
+  Database configuration options
+
+  <ParamField path="dataPath" type="string" default="./data">
+    Directory path where database files will be stored
+  </ParamField>
+
+  <ParamField path="cacheSize" type="number" default="1000">
+    Maximum number of records to keep in memory cache per table
+  </ParamField>
+
+  <ParamField path="autoSave" type="boolean" default="true">
+    Enable automatic saving of changes to disk
+  </ParamField>
+
+  <ParamField path="indexAutoCreate" type="boolean" default="true">
+    Automatically create indices for frequently queried fields
+  </ParamField>
+
+  <ParamField path="compression" type="boolean" default="false">
+    Enable compression for stored data
+  </ParamField>
+</ParamField>
+
+## Methods
+
+### init()
+
+Initialize the database and load existing data.
+
+```javascript
+await db.init();
+```
+
+<ResponseField name="returns" type="Promise<AmoraDB>">
+  Returns the database instance
+</ResponseField>
+
+<Note>
+  You must call `init()` before performing any database operations. The method emits a `ready` event when initialization is complete.
+</Note>
+
+---
+
+### table(name)
+
+Get or create a table.
+
+```javascript
+const users = db.table('users');
+```
+
+<ParamField path="name" type="string" required>
+  Name of the table
+</ParamField>
+
+<ResponseField name="returns" type="Table">
+  Table instance for performing operations
+</ResponseField>
+
+---
+
+### dropTable(name)
+
+Permanently delete a table and all its data.
+
+```javascript
+await db.dropTable('users');
+```
+
+<ParamField path="name" type="string" required>
+  Name of the table to drop
+</ParamField>
+
+<ResponseField name="returns" type="Promise<void>">
+  Promise that resolves when the table is dropped
+</ResponseField>
+
+---
+
+### listTables()
+
+Get a list of all tables in the database.
+
+```javascript
+const tables = await db.listTables();
+// ['users', 'posts', 'comments']
+```
+
+<ResponseField name="returns" type="Promise<string[]>">
+  Array of table names
+</ResponseField>
+
+---
+
+### close()
+
+Flush all pending writes and close the database.
+
+```javascript
+await db.close();
+```
+
+<ResponseField name="returns" type="Promise<void>">
+  Promise that resolves when the database is closed
+</ResponseField>
+
+<Note>
+  This method ensures all data is written to disk before closing. It emits a `close` event when complete.
+</Note>
+
+---
+
+### drop()
+
+Permanently delete the entire database.
+
+```javascript
+await db.drop();
+```
+
+<ResponseField name="returns" type="Promise<void>">
+  Promise that resolves when the database is deleted
+</ResponseField>
+
+<Warning>
+  This operation is irreversible and will delete all tables and data.
+</Warning>
+
+---
+
+### backup(path)
+
+Create a backup of the database.
+
+```javascript
+const backupPath = await db.backup('./backups/my-backup');
+```
+
+<ParamField path="path" type="string">
+  Optional path for the backup directory. If not provided, creates a timestamped backup in the same location as the database.
+</ParamField>
+
+<ResponseField name="returns" type="Promise<string>">
+  Path to the created backup directory
+</ResponseField>
+
+---
+
+### getStats()
+
+Get statistics about the database.
+
+```javascript
+const stats = await db.getStats();
+// {
+//   tables: 3,
+//   totalRecords: 1250,
+//   cacheStats: {
+//     users: { hits: 450, misses: 20, size: 100 },
+//     posts: { hits: 680, misses: 15, size: 150 }
+//   }
+// }
+```
+
+<ResponseField name="returns" type="Promise<object>">
+  Object containing database statistics
+
+  <ResponseField name="tables" type="number">
+    Number of tables in the database
+  </ResponseField>
+
+  <ResponseField name="totalRecords" type="number">
+    Total number of records across all tables
+  </ResponseField>
+
+  <ResponseField name="cacheStats" type="object">
+    Cache statistics for each table
+  </ResponseField>
+</ResponseField>
+
+---
+
+### optimize()
+
+Optimize database performance by rebuilding indices.
+
+```javascript
+await db.optimize();
+```
+
+<ResponseField name="returns" type="Promise<void>">
+  Promise that resolves when optimization is complete
+</ResponseField>
+
+<Note>
+  This method flushes all pending writes and rebuilds all table indices for better query performance.
+</Note>
+
+## Events
+
+AmoraDB extends EventEmitter and emits the following events:
+
+### ready
+
+Emitted when the database has been initialized.
+
+```javascript
+db.on('ready', (db) => {
+  console.log('Database is ready');
+});
+```
+
+### error
+
+Emitted when an error occurs.
+
+```javascript
+db.on('error', (error) => {
+  console.error('Database error:', error);
+});
+```
+
+### close
+
+Emitted when the database is closed.
+
+```javascript
+db.on('close', () => {
+  console.log('Database closed');
+});
+```
+
+## Example
+
+```javascript
+const AmoraDB = require('amoradb');
+
+// Create and initialize database
+const db = new AmoraDB('myapp', {
+  dataPath: './data',
+  cacheSize: 2000,
+  autoSave: true
+});
+
+await db.init();
+
+// Get a table
+const users = db.table('users');
+
+// Perform operations
+users.insert({ name: 'Alice', email: 'alice@example.com' });
+
+// Get statistics
+const stats = await db.getStats();
+console.log(`Total records: ${stats.totalRecords}`);
+
+// Close database
+await db.close();
+```

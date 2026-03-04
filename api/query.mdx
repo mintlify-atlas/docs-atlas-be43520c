@@ -1,0 +1,393 @@
+---
+title: 'Query'
+description: 'Query builder for advanced filtering, sorting, and data manipulation'
+icon: 'filter'
+---
+
+The Query class provides a fluent API for building complex queries with filtering, sorting, pagination, and aggregation.
+
+## Query Methods
+
+### where(condition)
+
+Add a filter condition to the query.
+
+```javascript
+const results = await users.find({ status: 'active' })
+  .where({ role: 'admin' })
+  .execute();
+```
+
+<ParamField path="condition" type="object | function" required>
+  Query condition as an object with operators or a custom function
+</ParamField>
+
+<ResponseField name="returns" type="Query">
+  Query instance for chaining
+</ResponseField>
+
+---
+
+### and(condition)
+
+Add an AND condition (alias for `where`).
+
+```javascript
+const results = await users.find({ status: 'active' })
+  .and({ role: 'admin' })
+  .execute();
+```
+
+<ParamField path="condition" type="object | function" required>
+  Additional condition to AND with existing conditions
+</ParamField>
+
+<ResponseField name="returns" type="Query">
+  Query instance for chaining
+</ResponseField>
+
+---
+
+### or(condition)
+
+Add an OR condition to the previous condition.
+
+```javascript
+const results = await users.find({ role: 'admin' })
+  .or({ role: 'moderator' })
+  .execute();
+```
+
+<ParamField path="condition" type="object | function" required>
+  Condition to OR with the previous condition
+</ParamField>
+
+<ResponseField name="returns" type="Query">
+  Query instance for chaining
+</ResponseField>
+
+<Note>
+  The `or()` method combines with the immediately preceding condition. For complex OR logic, use a custom function with `where()`.
+</Note>
+
+---
+
+### sort(field, order)
+
+Sort results by a field.
+
+```javascript
+const results = await users.find({ status: 'active' })
+  .sort('name', 'asc')
+  .execute();
+```
+
+<ParamField path="field" type="string" required>
+  Field name to sort by
+</ParamField>
+
+<ParamField path="order" type="string" default="asc">
+  Sort order: `'asc'` for ascending or `'desc'` for descending
+</ParamField>
+
+<ResponseField name="returns" type="Query">
+  Query instance for chaining
+</ResponseField>
+
+---
+
+### limit(count)
+
+Limit the number of results.
+
+```javascript
+const results = await users.find({ status: 'active' })
+  .limit(10)
+  .execute();
+```
+
+<ParamField path="count" type="number" required>
+  Maximum number of records to return
+</ParamField>
+
+<ResponseField name="returns" type="Query">
+  Query instance for chaining
+</ResponseField>
+
+---
+
+### skip(count)
+
+Skip a number of results (for pagination).
+
+```javascript
+const results = await users.find({ status: 'active' })
+  .skip(20)
+  .limit(10)
+  .execute();
+```
+
+<ParamField path="count" type="number" required>
+  Number of records to skip
+</ParamField>
+
+<ResponseField name="returns" type="Query">
+  Query instance for chaining
+</ResponseField>
+
+---
+
+### select(fields)
+
+Select specific fields to return (projection).
+
+```javascript
+const results = await users.find({ status: 'active' })
+  .select(['name', 'email'])
+  .execute();
+// Returns: [{ name: 'Alice', email: 'alice@example.com' }, ...]
+```
+
+<ParamField path="fields" type="string | array" required>
+  Field name or array of field names to include in results
+</ParamField>
+
+<ResponseField name="returns" type="Query">
+  Query instance for chaining
+</ResponseField>
+
+---
+
+### execute()
+
+Execute the query and return results.
+
+```javascript
+const results = await users.find({ status: 'active' })
+  .sort('name', 'asc')
+  .limit(10)
+  .execute();
+```
+
+<ResponseField name="returns" type="Promise<array>">
+  Array of matching records
+</ResponseField>
+
+---
+
+### first()
+
+Execute the query and return only the first result.
+
+```javascript
+const user = await users.find({ email: 'alice@example.com' }).first();
+```
+
+<ResponseField name="returns" type="Promise<object | null>">
+  The first matching record, or null if no matches
+</ResponseField>
+
+---
+
+### count()
+
+Count the number of matching records without returning them.
+
+```javascript
+const count = await users.find({ status: 'active' }).count();
+```
+
+<ResponseField name="returns" type="Promise<number>">
+  Number of matching records
+</ResponseField>
+
+---
+
+### distinct(field)
+
+Get unique values for a field.
+
+```javascript
+const roles = await users.all().distinct('role');
+// Returns: ['admin', 'moderator', 'user']
+```
+
+<ParamField path="field" type="string" required>
+  Field name to get distinct values for
+</ParamField>
+
+<ResponseField name="returns" type="Promise<array>">
+  Array of unique values
+</ResponseField>
+
+---
+
+### aggregate(operations)
+
+Perform aggregation operations on results.
+
+```javascript
+const stats = await users.find({ status: 'active' }).aggregate({
+  totalAge: { $sum: 'age' },
+  avgAge: { $avg: 'age' },
+  minAge: { $min: 'age' },
+  maxAge: { $max: 'age' },
+  count: { $count: true }
+});
+// Returns: { totalAge: 450, avgAge: 30, minAge: 18, maxAge: 65, count: 15 }
+```
+
+<ParamField path="operations" type="object" required>
+  Object mapping result keys to aggregation operations:
+  
+  - `$sum` - Sum of field values
+  - `$avg` - Average of field values
+  - `$min` - Minimum field value
+  - `$max` - Maximum field value
+  - `$count` - Count of records
+</ParamField>
+
+<ResponseField name="returns" type="Promise<object>">
+  Object containing aggregation results
+</ResponseField>
+
+## Query Operators
+
+Use these operators within condition objects:
+
+### Comparison Operators
+
+#### $eq (equal)
+
+```javascript
+users.find({ age: { $eq: 25 } })
+// Same as: users.find({ age: 25 })
+```
+
+#### $ne (not equal)
+
+```javascript
+users.find({ status: { $ne: 'deleted' } })
+```
+
+#### $gt (greater than)
+
+```javascript
+users.find({ age: { $gt: 18 } })
+```
+
+#### $gte (greater than or equal)
+
+```javascript
+users.find({ age: { $gte: 18 } })
+```
+
+#### $lt (less than)
+
+```javascript
+users.find({ age: { $lt: 65 } })
+```
+
+#### $lte (less than or equal)
+
+```javascript
+users.find({ age: { $lte: 65 } })
+```
+
+### Array Operators
+
+#### $in (in array)
+
+```javascript
+users.find({ role: { $in: ['admin', 'moderator'] } })
+```
+
+#### $nin (not in array)
+
+```javascript
+users.find({ status: { $nin: ['deleted', 'banned'] } })
+```
+
+### String Operators
+
+#### $regex (regular expression)
+
+```javascript
+users.find({ email: { $regex: '@example\\.com$', $options: 'i' } })
+```
+
+<Note>
+  The `$options` parameter is optional and supports regex flags like `'i'` for case-insensitive matching.
+</Note>
+
+### Field Operators
+
+#### $exists (field exists)
+
+```javascript
+users.find({ phone: { $exists: true } })
+```
+
+## Chaining Examples
+
+### Pagination
+
+```javascript
+const page = 2;
+const pageSize = 20;
+
+const results = await users.find({ status: 'active' })
+  .sort('createdAt', 'desc')
+  .skip((page - 1) * pageSize)
+  .limit(pageSize)
+  .execute();
+```
+
+### Complex Filtering
+
+```javascript
+const results = await users.find({ status: 'active' })
+  .where({ age: { $gte: 18, $lt: 65 } })
+  .where({ role: { $in: ['user', 'premium'] } })
+  .sort('name', 'asc')
+  .execute();
+```
+
+### Projection with Selected Fields
+
+```javascript
+const results = await users.find({ status: 'active' })
+  .select(['name', 'email', 'role'])
+  .limit(100)
+  .execute();
+```
+
+### Custom Filter Function
+
+```javascript
+const results = await users.find((user) => {
+  return user.age >= 18 && user.age < 65 && user.email.includes('@example.com');
+}).execute();
+```
+
+### Aggregation Query
+
+```javascript
+const stats = await orders.find({ status: 'completed' }).aggregate({
+  totalRevenue: { $sum: 'amount' },
+  avgOrderValue: { $avg: 'amount' },
+  orderCount: { $count: true },
+  maxOrder: { $max: 'amount' },
+  minOrder: { $min: 'amount' }
+});
+```
+
+## Performance Tips
+
+<Tip>
+  - Create indices on frequently queried fields using `table.createIndex(field)`
+  - Use `first()` instead of `execute()` when you only need one result
+  - Use `count()` instead of `execute().length` when you only need the count
+  - Combine conditions in a single `where()` call when possible
+  - Use indexed fields in your queries for better performance
+</Tip>

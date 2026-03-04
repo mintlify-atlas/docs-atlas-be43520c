@@ -1,0 +1,598 @@
+---
+title: 'Performance Optimization'
+description: 'Optimize AmoraDB performance with indexing, caching, and batch operations'
+icon: 'gauge-high'
+---
+
+## Overview
+
+AmoraDB is designed for performance with built-in optimizations like caching, indexing, and batch processing. This guide covers strategies to maximize performance for your specific use case.
+
+## Indexing Strategy
+
+### When to Create Indices
+
+Indices dramatically improve query performance but have a maintenance cost. Create indices for:
+
+<CardGroup cols={2}>
+  <Card title="Frequently Queried Fields" icon="magnifying-glass">
+    Fields used in `where()` clauses and `find()` conditions
+  </Card>
+  
+  <Card title="Sort Fields" icon="arrow-down-short-wide">
+    Fields used in `sort()` operations
+  </Card>
+  
+  <Card title="Range Queries" icon="sliders">
+    Numeric or date fields used with `$gt`, `$gte`, `$lt`, `$lte`
+  </Card>
+  
+  <Card title="Join Keys" icon="link">
+    Fields used to relate tables (foreign keys)
+  </Card>
+</CardGroup>
+
+### Creating Indices
+
+```javascript
+// Create an index on email (exact match queries)
+await db.table('users').createIndex('email');
+
+// Create an index on numeric field (range queries)
+await db.table('products').createIndex('price');
+
+// Create an index on date field (time-based queries)
+await db.table('orders').createIndex('orderDate');
+```
+
+<Tip>
+AmoraDB automatically creates **sorted indices** for numeric and date fields, enabling efficient range queries.
+</Tip>
+
+### Index Types
+
+AmoraDB uses two types of indices:
+
+<Tabs>
+  <Tab title="Hash Index">
+    Used for string fields and exact match queries.
+    
+    ```javascript
+    // Creates a hash index
+    await db.table('users').createIndex('email');
+    
+    // Efficient query
+    const user = await db.table('users')
+      .findOne({ email: 'alice@example.com' });
+    ```
+    
+    **Best for:** `$eq`, `$ne`, `$in`, `$nin` operators
+  </Tab>
+  
+  <Tab title="Sorted Index">
+    Used for numeric and date fields, enables range queries.
+    
+    ```javascript
+    // Creates a sorted index
+    await db.table('products').createIndex('price');
+    
+    // Efficient range query
+    const affordable = await db.table('products')
+      .find({ price: { $gte: 10, $lte: 100 } })
+      .execute();
+    ```
+    
+    **Best for:** `$gt`, `$gte`, `$lt`, `$lte`, range queries
+  </Tab>
+</Tabs>
+
+### Index Management
+
+```javascript
+// Check if index exists
+const hasIndex = db.table('users').indexManager.hasIndex('email');
+
+// Get all indices
+const indices = db.table('users').indexManager.getIndices();
+console.log('Indices:', indices);
+
+// Drop an index
+await db.table('users').dropIndex('email');
+```
+
+<Warning>
+Dropping an index immediately impacts query performance on that field. Ensure no critical queries depend on it before dropping.
+</Warning>
+
+### Multi-Field Queries
+
+For queries with multiple conditions, create indices on the most selective fields:
+
+```javascript
+// Query with multiple conditions
+const query = await db.table('orders')
+  .find({
+    customerId: 'cust-123',      // High selectivity - create index
+    status: 'completed',          // Low selectivity - no index needed
+    orderDate: { $gte: '2024-01-01' }  // Range query - create index
+  })
+  .execute();
+
+// Create indices on selective fields
+await db.table('orders').createIndex('customerId');
+await db.table('orders').createIndex('orderDate');
+```
+
+## Cache Configuration
+
+### Cache Size Tuning
+
+The cache stores frequently accessed records in memory. Configure it based on your data access patterns:
+
+```javascript
+const db = new AmoraDB('mydb', {
+  cacheSize: 1000  // Number of records to cache (default: 1000)
+});
+
+await db.init();
+```
+
+<Steps>
+  <Step title="Small datasets (< 10K records)">
+    Set `cacheSize` to your total record count for full in-memory operation
+  </Step>
+  
+  <Step title="Medium datasets (10K - 100K records)">
+    Set `cacheSize` to 10-20% of your record count
+  </Step>
+  
+  <Step title="Large datasets (> 100K records)">
+    Set `cacheSize` to 1000-5000 based on available memory
+  </Step>
+</Steps>
+
+### Cache Strategy
+
+AmoraDB uses an LRU (Least Recently Used) cache:
+
+```javascript
+// Cache automatically stores:
+// - Recently accessed records via findById()
+// - Records loaded from disk
+// - Records from pending writes
+
+// Force a record into cache
+const user = await db.table('users').findById('user-123');
+// Now cached for faster subsequent access
+
+const sameUser = await db.table('users').findById('user-123');
+// Retrieved from cache (no disk I/O)
+```
+
+### In-Memory Mode
+
+For small datasets, enable full in-memory operation:
+
+```javascript
+const totalRecords = await db.table('config').count();
+
+// If small enough, load everything into memory
+if (totalRecords < 5000) {
+  const db2 = new AmoraDB('mydb', {
+    cacheSize: totalRecords
+  });
+  await db2.init();
+}
+```
+
+<Tip>
+When `cacheSize >= recordCount`, AmoraDB loads all records into memory during initialization for maximum performance.
+</Tip>
+
+## Batch Operations
+
+### Batch Inserts
+
+Use `insertMany()` for bulk inserts instead of multiple `insert()` calls:
+
+<CodeGroup>
+
+```javascript Inefficient
+// DON'T: Multiple individual inserts
+for (const user of users) {
+  await db.table('users').insert(user);
+}
+```
+
+```javascript Efficient
+// DO: Single batch insert
+await db.table('users').insertMany(users);
+```
+
+</CodeGroup>
+
+**Performance Impact:**
+- `insertMany()` is **10-100x faster** than individual inserts
+- Reduces disk I/O operations
+- Maintains consistent timestamps across batch
+
+### Batch Size Configuration
+
+Control when pending writes are flushed to disk:
+
+```javascript
+// Default batch size is 1000
+const table = db.table('logs');
+console.log('Batch size:', table.batchSize);
+
+// Adjust for your use case
+table.batchSize = 5000;  // Larger batches = fewer writes
+
+// Insert records - flushes every 5000 records
+for (let i = 0; i < 10000; i++) {
+  table.insert({ message: `Log entry ${i}` });
+}
+```
+
+<Tabs>
+  <Tab title="High Throughput">
+    ```javascript
+    // Optimize for bulk inserts
+    table.batchSize = 10000;
+    
+    // Insert large dataset
+    await table.insertMany(largeDataset);
+    ```
+  </Tab>
+  
+  <Tab title="Low Latency">
+    ```javascript
+    // Optimize for quick persistence
+    table.batchSize = 100;
+    
+    // Critical data written sooner
+    table.insert({ critical: true });
+    ```
+  </Tab>
+  
+  <Tab title="Balanced">
+    ```javascript
+    // Default setting (recommended)
+    table.batchSize = 1000;
+    ```
+  </Tab>
+</Tabs>
+
+### Manual Flushing
+
+Force pending writes to disk:
+
+```javascript
+// Insert records
+for (let i = 0; i < 500; i++) {
+  db.table('logs').insert({ message: `Entry ${i}` });
+}
+
+// Force write to disk immediately
+await db.table('logs').flush();
+console.log('All writes persisted');
+```
+
+<Warning>
+Calling `flush()` too frequently negates the benefits of batch processing. Use it sparingly for critical operations.
+</Warning>
+
+## Compaction
+
+### Understanding Compaction
+
+Compaction rebuilds the data file to remove deleted records and apply updates, reducing file size and improving read performance.
+
+```javascript
+// Compaction is triggered automatically when:
+// 1. Deleted/updated records exceed 30% of total (compactionThreshold)
+// 2. More than 10,000 operations since last compaction
+// 3. More than 60 seconds since last compaction (compactionInterval)
+
+const table = db.table('users');
+console.log('Threshold:', table.compactionThreshold);      // 0.3 (30%)
+console.log('Interval:', table.compactionInterval);        // 60000 (60 seconds)
+```
+
+### Tuning Compaction
+
+```javascript
+const table = db.table('users');
+
+// More aggressive compaction (frequent updates/deletes)
+table.compactionThreshold = 0.2;   // Compact at 20% dirty records
+table.compactionInterval = 30000;  // Compact every 30 seconds
+
+// Less aggressive compaction (mostly reads)
+table.compactionThreshold = 0.5;   // Compact at 50% dirty records
+table.compactionInterval = 300000; // Compact every 5 minutes
+```
+
+<Tabs>
+  <Tab title="Write-Heavy Workload">
+    ```javascript
+    // Frequent compaction for heavy writes
+    table.compactionThreshold = 0.2;
+    table.compactionInterval = 30000;
+    ```
+  </Tab>
+  
+  <Tab title="Read-Heavy Workload">
+    ```javascript
+    // Less frequent compaction
+    table.compactionThreshold = 0.5;
+    table.compactionInterval = 600000;
+    ```
+  </Tab>
+  
+  <Tab title="Balanced Workload">
+    ```javascript
+    // Default settings (recommended)
+    table.compactionThreshold = 0.3;
+    table.compactionInterval = 60000;
+    ```
+  </Tab>
+</Tabs>
+
+### Manual Compaction
+
+Trigger compaction manually:
+
+```javascript
+// Check if compaction is needed
+if (db.table('users').needsCompaction()) {
+  console.log('Compaction needed, saving...');
+  await db.table('users').save();
+}
+
+// Force compaction by saving
+await db.table('users').save();
+```
+
+## Query Optimization
+
+### Use Specific Conditions
+
+<CodeGroup>
+
+```javascript Inefficient
+// Fetches all records, then filters in memory
+const users = await db.table('users').all().execute();
+const active = users.filter(u => u.status === 'active');
+```
+
+```javascript Efficient
+// Filters at query level (uses indices if available)
+const active = await db.table('users')
+  .find({ status: 'active' })
+  .execute();
+```
+
+</CodeGroup>
+
+### Limit Results Early
+
+```javascript
+// Fetch only what you need
+const topUsers = await db.table('users')
+  .find({ status: 'active' })
+  .sort('points', 'desc')
+  .limit(10)  // Stop after 10 results
+  .execute();
+```
+
+### Select Only Required Fields
+
+```javascript
+// Reduce memory usage
+const emails = await db.table('users')
+  .find({ status: 'active' })
+  .select(['email', 'name'])
+  .execute();
+```
+
+### Avoid Function Filters on Large Tables
+
+<CodeGroup>
+
+```javascript Inefficient
+// Full table scan
+const results = await db.table('products')
+  .find(record => record.price * 0.9 < 100)
+  .execute();
+```
+
+```javascript Efficient
+// Use operators and indices
+await db.table('products').createIndex('price');
+const results = await db.table('products')
+  .find({ price: { $lt: 111.11 } })
+  .execute();
+```
+
+</CodeGroup>
+
+## Database-Level Optimization
+
+### Optimize All Tables
+
+Rebuild indices across all tables:
+
+```javascript
+// Optimize entire database
+await db.optimize();
+console.log('Database optimized');
+```
+
+This operation:
+- Flushes all pending writes
+- Rebuilds all indices
+- Compacts data files
+
+<Warning>
+Optimization can be time-consuming for large databases. Run during maintenance windows.
+</Warning>
+
+### Auto-Save Configuration
+
+Control automatic persistence:
+
+```javascript
+const db = new AmoraDB('mydb', {
+  autoSave: true  // Enable automatic saves (default)
+});
+
+await db.init();
+
+// Writes are automatically persisted after a 100ms debounce
+```
+
+<Tip>
+Disable `autoSave` for bulk import operations, then manually flush:
+
+```javascript
+const db = new AmoraDB('import', { autoSave: false });
+await db.init();
+
+// Bulk import
+await db.table('users').insertMany(largeDataset);
+
+// Manual flush
+await db.table('users').flush();
+```
+</Tip>
+
+## Monitoring Performance
+
+### Database Statistics
+
+```javascript
+const stats = await db.getStats();
+console.log('Database Stats:', stats);
+// {
+//   tables: 5,
+//   totalRecords: 15000,
+//   cacheStats: {
+//     users: { hits: 1200, misses: 300, size: 1000 },
+//     products: { hits: 800, misses: 200, size: 1000 }
+//   }
+// }
+```
+
+### Cache Hit Rate
+
+```javascript
+const cacheStats = (await db.getStats()).cacheStats['users'];
+const hitRate = cacheStats.hits / (cacheStats.hits + cacheStats.misses);
+console.log(`Cache hit rate: ${(hitRate * 100).toFixed(2)}%`);
+
+if (hitRate < 0.7) {
+  console.log('Consider increasing cache size');
+}
+```
+
+### Table Statistics
+
+```javascript
+const table = db.table('users');
+
+console.log('Record count:', table.metadata.recordCount);
+console.log('Indices:', table.indexManager.getIndices());
+console.log('Pending writes:', table.pendingWrites.length);
+console.log('Pending updates:', table.pendingUpdates.size);
+console.log('Pending deletes:', table.pendingDeletes.size);
+```
+
+## Performance Benchmarks
+
+<Steps>
+  <Step title="Measure baseline performance">
+    Test operations without optimization
+  </Step>
+  
+  <Step title="Add indices to query fields">
+    Measure improvement (typically 10-100x faster)
+  </Step>
+  
+  <Step title="Tune cache size">
+    Monitor cache hit rate and adjust
+  </Step>
+  
+  <Step title="Optimize batch operations">
+    Use `insertMany()` and adjust batch sizes
+  </Step>
+</Steps>
+
+### Benchmark Example
+
+```javascript
+async function benchmark() {
+  const start = Date.now();
+  
+  // Operation to benchmark
+  const results = await db.table('products')
+    .find({ category: 'electronics' })
+    .execute();
+  
+  const duration = Date.now() - start;
+  console.log(`Query took ${duration}ms for ${results.length} results`);
+  console.log(`Performance: ${(results.length / duration * 1000).toFixed(0)} records/sec`);
+}
+
+// Before optimization
+await benchmark();
+
+// Create index
+await db.table('products').createIndex('category');
+
+// After optimization
+await benchmark();
+```
+
+## Best Practices Checklist
+
+<CardGroup cols={2}>
+  <Card title="Index Strategy" icon="list-check">
+    - Create indices on frequently queried fields
+    - Use sorted indices for range queries
+    - Drop unused indices
+    - Monitor index effectiveness
+  </Card>
+  
+  <Card title="Batch Operations" icon="layer-group">
+    - Use `insertMany()` for bulk inserts
+    - Adjust `batchSize` for workload
+    - Manual flush for critical writes
+    - Disable `autoSave` for large imports
+  </Card>
+  
+  <Card title="Query Optimization" icon="magnifying-glass-chart">
+    - Use specific conditions
+    - Limit results early
+    - Select only needed fields
+    - Avoid function filters
+  </Card>
+  
+  <Card title="Maintenance" icon="wrench">
+    - Monitor cache hit rate
+    - Tune compaction settings
+    - Run `optimize()` periodically
+    - Review database statistics
+  </Card>
+</CardGroup>
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Backup & Maintenance" icon="hard-drive" href="/guides/backup-and-maintenance">
+    Learn backup strategies and database maintenance
+  </Card>
+  <Card title="Queries & Filtering" icon="filter" href="/guides/queries-and-filtering">
+    Master advanced query techniques
+  </Card>
+</CardGroup>

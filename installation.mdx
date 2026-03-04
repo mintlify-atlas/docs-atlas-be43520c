@@ -1,0 +1,229 @@
+---
+title: Installation
+description: Install AmoraDB in your Node.js project and verify your setup
+---
+
+## Prerequisites
+
+Before installing AmoraDB, ensure you have the following:
+
+- **Node.js 14.0.0 or higher**: AmoraDB requires Node.js version 14 or above
+- **npm, yarn, or pnpm**: Any Node.js package manager will work
+
+<Info>
+You can check your Node.js version by running `node --version` in your terminal.
+</Info>
+
+## Install AmoraDB
+
+Choose your preferred package manager to install AmoraDB:
+
+<CodeGroup>
+```bash npm
+npm install amoradb
+```
+
+```bash yarn
+yarn add amoradb
+```
+
+```bash pnpm
+pnpm add amoradb
+```
+</CodeGroup>
+
+That's it! AmoraDB has **zero external dependencies**, so the installation is fast and lightweight.
+
+## Verify installation
+
+Create a test file to verify AmoraDB is installed correctly:
+
+<Steps>
+  <Step title="Create a test file">
+    Create a new file called `test-amoradb.js` in your project root:
+
+    ```javascript test-amoradb.js
+    const AmoraDB = require('amoradb');
+
+    async function testInstallation() {
+      try {
+        // Create and initialize database
+        const db = new AmoraDB('test-db');
+        await db.init();
+
+        // Create a test table and insert a record
+        const users = db.table('users');
+        const user = users.insert({ name: 'Test User' });
+
+        // Query the record
+        const found = await users.findById(user._id);
+        
+        console.log('✓ Installation successful!');
+        console.log('✓ Created record:', found);
+
+        // Clean up
+        await db.drop();
+        
+        process.exit(0);
+      } catch (error) {
+        console.error('✗ Installation test failed:', error.message);
+        process.exit(1);
+      }
+    }
+
+    testInstallation();
+    ```
+  </Step>
+
+  <Step title="Run the test">
+    Execute the test file:
+
+    ```bash
+    node test-amoradb.js
+    ```
+
+    You should see output similar to:
+
+    ```
+    ✓ Installation successful!
+    ✓ Created record: {
+      name: 'Test User',
+      _id: '550e8400-e29b-41d4-a716-446655440000',
+      _created: '2024-01-01T00:00:00.000Z',
+      _modified: '2024-01-01T00:00:00.000Z'
+    }
+    ```
+  </Step>
+
+  <Step title="Clean up">
+    The test script automatically cleans up the test database. You can safely delete the `test-amoradb.js` file:
+
+    ```bash
+    rm test-amoradb.js
+    ```
+  </Step>
+</Steps>
+
+## Directory structure after installation
+
+When you initialize AmoraDB in your application, it creates a data directory structure:
+
+```
+your-project/
+├── node_modules/
+│   └── amoradb/           # AmoraDB package
+├── data/                   # Created on first db.init()
+│   └── your-db-name/       # Your database directory
+│       ├── _metadata.json  # Database-level metadata
+│       ├── table1.jsonl    # Table data files
+│       ├── table1.meta.json
+│       ├── table2.jsonl
+│       └── table2.meta.json
+├── package.json
+└── your-app.js
+```
+
+<Note>
+By default, AmoraDB creates a `data/` directory in your project root. You can customize this location using the `dataPath` option when creating a database instance.
+</Note>
+
+## Configuration options
+
+When creating a new AmoraDB instance, you can customize its behavior with these options:
+
+```javascript
+const db = new AmoraDB('myapp', {
+  dataPath: './custom/path',  // where to store database files (default: './data')
+  cacheSize: 2000,            // LRU cache capacity (default: 1000)
+  autoSave: true              // auto-flush writes on a debounced timer (default: true)
+});
+```
+
+### Option reference
+
+| Option | Type | Default | Description |
+|--------|------|---------|-------------|
+| `dataPath` | string | `'./data'` | Directory where database files are stored |
+| `cacheSize` | number | `1000` | Maximum number of records to keep in LRU cache |
+| `autoSave` | boolean | `true` | Automatically flush pending writes to disk |
+
+## Common installation issues
+
+<Accordion title="Error: Cannot find module 'amoradb'">
+  This error indicates that AmoraDB is not installed in your project. Solutions:
+
+  1. Ensure you ran the installation command in the correct project directory
+  2. Verify `amoradb` appears in your `package.json` dependencies
+  3. Try removing `node_modules` and reinstalling:
+     ```bash
+     rm -rf node_modules package-lock.json
+     npm install
+     ```
+</Accordion>
+
+<Accordion title="Error: EACCES: permission denied">
+  This error occurs when AmoraDB cannot create the data directory due to file system permissions. Solutions:
+
+  1. Ensure your application has write permissions to the project directory
+  2. Specify a custom `dataPath` where you have write access:
+     ```javascript
+     const db = new AmoraDB('myapp', {
+       dataPath: '/tmp/myapp-data'  // Use a directory with write permissions
+     });
+     ```
+  3. On Unix systems, check directory permissions:
+     ```bash
+     ls -la
+     chmod u+w .  # Give yourself write permissions if needed
+     ```
+</Accordion>
+
+<Accordion title="Node.js version mismatch">
+  AmoraDB requires Node.js 14.0.0 or higher. If you're running an older version:
+
+  1. Check your current version:
+     ```bash
+     node --version
+     ```
+  2. Update Node.js using your preferred method:
+     - **nvm**: `nvm install 14` or `nvm install --lts`
+     - **Direct download**: Visit [nodejs.org](https://nodejs.org)
+     - **Package manager**: `brew upgrade node` (macOS) or `apt-get install nodejs` (Ubuntu)
+  3. Verify the update:
+     ```bash
+     node --version  # Should show v14.0.0 or higher
+     ```
+</Accordion>
+
+<Accordion title="TypeScript definitions not found">
+  TypeScript definitions are currently in progress. If you're using TypeScript, you can create a declaration file:
+
+  Create `amoradb.d.ts` in your project:
+  ```typescript
+  declare module 'amoradb' {
+    export default class AmoraDB {
+      constructor(name: string, options?: {
+        dataPath?: string;
+        cacheSize?: number;
+        autoSave?: boolean;
+      });
+      init(): Promise<AmoraDB>;
+      table(name: string): any;
+      close(): Promise<void>;
+      // Add other methods as needed
+    }
+  }
+  ```
+
+  <Note>
+  Official TypeScript definitions are on the roadmap and will be included in a future release.
+  </Note>
+</Accordion>
+
+## Next steps
+
+Now that AmoraDB is installed and verified, you're ready to build your first application:
+
+- Follow the [Quick Start](/quickstart) guide to learn the basics
+- Explore the [API Reference](/api-reference) for detailed method documentation
+- Check out [Query Examples](/queries) to learn the query language

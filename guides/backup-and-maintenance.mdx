@@ -1,0 +1,598 @@
+---
+title: 'Backup & Maintenance'
+description: 'Database backup strategies, maintenance operations, and migration techniques for AmoraDB'
+icon: 'hard-drive'
+---
+
+## Overview
+
+Proper backup and maintenance procedures ensure data integrity and optimal performance. AmoraDB provides built-in methods for backup, optimization, and database management.
+
+## Backup Operations
+
+### backup() Method
+
+Create a complete backup of your database:
+
+```javascript
+// Create backup with auto-generated path
+const backupPath = await db.backup();
+console.log(`Backup created at: ${backupPath}`);
+// Output: Backup created at: ./data/mydb_backup_1710504000000
+
+// Create backup with custom path
+const customBackup = await db.backup('/backups/mydb-2024-03-15');
+console.log(`Backup saved to: ${customBackup}`);
+```
+
+The `backup()` method:
+- Copies all table data files (`.jsonl`)
+- Copies all metadata files (`.meta.json`)
+- Copies database metadata (`_metadata.json`)
+- Creates backup directory if it doesn't exist
+
+<Tip>
+Backups are full copies, not incremental. Each backup contains all database files.
+</Tip>
+
+### Automated Backup Schedule
+
+```javascript
+const cron = require('node-cron');
+
+// Daily backup at 2 AM
+cron.schedule('0 2 * * *', async () => {
+  try {
+    const backupPath = await db.backup();
+    console.log(`Daily backup completed: ${backupPath}`);
+  } catch (error) {
+    console.error('Backup failed:', error.message);
+    // Send alert notification
+  }
+});
+
+// Weekly backup every Sunday at 3 AM
+cron.schedule('0 3 * * 0', async () => {
+  const timestamp = new Date().toISOString().split('T')[0];
+  await db.backup(`/weekly-backups/db-${timestamp}`);
+});
+```
+
+### Backup Before Critical Operations
+
+```javascript
+async function performCriticalUpdate() {
+  // Create backup before risky operation
+  const backupPath = await db.backup();
+  console.log('Backup created:', backupPath);
+  
+  try {
+    // Perform critical updates
+    await db.table('users').updateMany(
+      { status: 'legacy' },
+      { status: 'migrated', migratedAt: new Date().toISOString() }
+    );
+    
+    console.log('Update successful');
+  } catch (error) {
+    console.error('Update failed:', error.message);
+    console.log('Restore from backup:', backupPath);
+    throw error;
+  }
+}
+```
+
+### Backup Rotation Strategy
+
+```javascript
+const fs = require('fs').promises;
+const path = require('path');
+
+async function rotateBackups(maxBackups = 7) {
+  const backupDir = './backups';
+  
+  // Create new backup
+  const newBackup = await db.backup();
+  
+  // Get all backups sorted by date
+  const files = await fs.readdir(backupDir);
+  const backups = files
+    .filter(f => f.startsWith('mydb_backup_'))
+    .map(f => ({
+      name: f,
+      path: path.join(backupDir, f),
+      timestamp: parseInt(f.split('_').pop())
+    }))
+    .sort((a, b) => b.timestamp - a.timestamp);
+  
+  // Remove old backups
+  for (let i = maxBackups; i < backups.length; i++) {
+    await fs.rm(backups[i].path, { recursive: true });
+    console.log(`Removed old backup: ${backups[i].name}`);
+  }
+  
+  return newBackup;
+}
+
+// Keep last 7 backups
+await rotateBackups(7);
+```
+
+## Restore from Backup
+
+To restore a backup, simply point AmoraDB to the backup directory:
+
+```javascript
+// Close current database
+await db.close();
+
+// Create new instance pointing to backup
+const restoredDb = new AmoraDB('mydb', {
+  dataPath: '/backups/mydb_backup_1710504000000'
+});
+
+await restoredDb.init();
+console.log('Database restored from backup');
+
+// Verify data
+const count = await restoredDb.table('users').count();
+console.log(`Restored ${count} users`);
+```
+
+<Steps>
+  <Step title="Stop application">
+    Ensure no processes are writing to the database
+  </Step>
+  
+  <Step title="Copy backup files">
+    Copy backup directory to your data location
+  </Step>
+  
+  <Step title="Initialize database">
+    Create new AmoraDB instance with backup path
+  </Step>
+  
+  <Step title="Verify data">
+    Check record counts and data integrity
+  </Step>
+</Steps>
+
+## Database Maintenance
+
+### flush() - Force Write to Disk
+
+Force all pending writes to be persisted:
+
+```javascript
+// Insert records
+for (let i = 0; i < 500; i++) {
+  db.table('logs').insert({ message: `Log ${i}` });
+}
+
+// Force immediate persistence
+await db.table('logs').flush();
+console.log('All writes committed to disk');
+```
+
+**When to use `flush()`:**
+- Before application shutdown
+- After critical operations
+- Before creating backups
+- When ensuring data durability
+
+### optimize() - Rebuild Indices
+
+Optimize database performance by rebuilding all indices:
+
+```javascript
+// Optimize entire database
+await db.optimize();
+console.log('Database optimized');
+```
+
+The `optimize()` method:
+1. Flushes all pending writes
+2. Drops all existing indices
+3. Rebuilds indices from current data
+4. Compacts data files
+
+<Warning>
+Optimization can take several minutes for large databases. Run during maintenance windows.
+</Warning>
+
+### Table-Level Optimization
+
+```javascript
+// Optimize a single table
+const table = db.table('users');
+
+// Flush pending writes
+await table.flush();
+
+// Rebuild indices
+const indices = table.indexManager.getIndices();
+for (const field of indices) {
+  table.dropIndex(field);
+  await table.createIndex(field);
+}
+
+// Force compaction
+await table.save();
+
+console.log('Table optimized');
+```
+
+## Data Management
+
+### truncate() - Clear Table Data
+
+Remove all records from a table while keeping the table structure:
+
+```javascript
+// Clear all data from table
+await db.table('logs').truncate();
+console.log('Logs table cleared');
+
+// Verify empty
+const count = await db.table('logs').count();
+console.log(`Records remaining: ${count}`); // 0
+```
+
+**What `truncate()` does:**
+- Deletes all records
+- Clears all indices
+- Resets metadata
+- Removes data file
+- Keeps table structure
+
+<Tabs>
+  <Tab title="truncate()">
+    ```javascript
+    // Fast: Deletes file
+    await db.table('logs').truncate();
+    
+    // Table still exists
+    const table = db.table('logs');
+    // Can immediately insert new data
+    ```
+  </Tab>
+  
+  <Tab title="deleteMany()">
+    ```javascript
+    // Slower: Marks records as deleted
+    await db.table('logs').deleteMany({});
+    
+    // Requires compaction to reclaim space
+    await db.table('logs').save();
+    ```
+  </Tab>
+</Tabs>
+
+### drop() - Delete Table
+
+Permanently delete a table and all its data:
+
+```javascript
+// Drop a table
+await db.table('old_logs').drop();
+
+// Or use dropTable method
+await db.dropTable('old_logs');
+
+console.log('Table deleted');
+
+// Table no longer exists
+const tables = await db.listTables();
+console.log('Remaining tables:', tables);
+```
+
+<Warning>
+`drop()` and `truncate()` are irreversible. Always create a backup before deleting data.
+</Warning>
+
+### Dropping the Entire Database
+
+```javascript
+// Close database
+await db.close();
+
+// Delete all data
+await db.drop();
+
+console.log('Database completely removed');
+```
+
+## Migration Strategies
+
+### Schema Migrations
+
+AmoraDB is schemaless, but you may want to migrate data formats:
+
+```javascript
+async function migrateUserSchema() {
+  console.log('Starting migration...');
+  
+  // Get all users
+  const users = await db.table('users').all().execute();
+  
+  // Migrate each user
+  for (const user of users) {
+    // Add new field
+    if (!user.fullName && user.firstName && user.lastName) {
+      await db.table('users').update(user._id, {
+        fullName: `${user.firstName} ${user.lastName}`
+      });
+    }
+    
+    // Rename field
+    if (user.phone_number) {
+      await db.table('users').update(user._id, {
+        phone: user.phone_number,
+        phone_number: undefined
+      });
+    }
+    
+    // Transform data
+    if (typeof user.age === 'string') {
+      await db.table('users').update(user._id, {
+        age: parseInt(user.age, 10)
+      });
+    }
+  }
+  
+  console.log(`Migrated ${users.length} users`);
+}
+
+await migrateUserSchema();
+```
+
+### Large-Scale Migrations
+
+For large datasets, process in batches:
+
+```javascript
+async function batchMigration() {
+  const batchSize = 1000;
+  let skip = 0;
+  let processed = 0;
+  
+  while (true) {
+    // Get batch
+    const batch = await db.table('users')
+      .all()
+      .skip(skip)
+      .limit(batchSize)
+      .execute();
+    
+    if (batch.length === 0) break;
+    
+    // Process batch
+    for (const record of batch) {
+      // Transform data
+      const updates = {
+        status: record.status || 'active',
+        updatedAt: new Date().toISOString()
+      };
+      
+      await db.table('users').update(record._id, updates);
+      processed++;
+    }
+    
+    console.log(`Processed ${processed} records...`);
+    skip += batchSize;
+    
+    // Flush periodically
+    if (processed % 5000 === 0) {
+      await db.table('users').flush();
+    }
+  }
+  
+  console.log(`Migration complete: ${processed} records`);
+}
+
+await batchMigration();
+```
+
+### Version Control for Migrations
+
+```javascript
+const migrations = [
+  {
+    version: 1,
+    name: 'add_fullName_field',
+    up: async (db) => {
+      const users = await db.table('users').all().execute();
+      for (const user of users) {
+        if (user.firstName && user.lastName) {
+          await db.table('users').update(user._id, {
+            fullName: `${user.firstName} ${user.lastName}`
+          });
+        }
+      }
+    }
+  },
+  {
+    version: 2,
+    name: 'normalize_phone_numbers',
+    up: async (db) => {
+      // Migration logic
+    }
+  }
+];
+
+async function migrate(db) {
+  // Get current version from metadata
+  const currentVersion = db.metadata.migrationVersion || 0;
+  
+  // Run pending migrations
+  for (const migration of migrations) {
+    if (migration.version > currentVersion) {
+      console.log(`Running migration: ${migration.name}`);
+      await migration.up(db);
+      db.metadata.migrationVersion = migration.version;
+      await db.saveMetadata();
+      console.log(`Migration ${migration.version} complete`);
+    }
+  }
+}
+
+await migrate(db);
+```
+
+## Database Health Checks
+
+```javascript
+async function healthCheck() {
+  const health = {
+    status: 'ok',
+    checks: [],
+    timestamp: new Date().toISOString()
+  };
+  
+  try {
+    // Check database connection
+    const stats = await db.getStats();
+    health.checks.push({
+      name: 'database_connection',
+      status: 'ok',
+      tables: stats.tables,
+      records: stats.totalRecords
+    });
+    
+    // Check each table
+    for (const tableName of await db.listTables()) {
+      const table = db.table(tableName);
+      const count = await table.count();
+      
+      health.checks.push({
+        name: `table_${tableName}`,
+        status: 'ok',
+        records: count,
+        pendingWrites: table.pendingWrites.length,
+        pendingUpdates: table.pendingUpdates.size
+      });
+    }
+    
+    // Check cache performance
+    const cacheStats = stats.cacheStats;
+    for (const [tableName, cache] of Object.entries(cacheStats)) {
+      const hitRate = cache.hits / (cache.hits + cache.misses);
+      health.checks.push({
+        name: `cache_${tableName}`,
+        status: hitRate > 0.5 ? 'ok' : 'warning',
+        hitRate: hitRate.toFixed(2),
+        message: hitRate < 0.5 ? 'Consider increasing cache size' : null
+      });
+    }
+    
+  } catch (error) {
+    health.status = 'error';
+    health.error = error.message;
+  }
+  
+  return health;
+}
+
+const health = await healthCheck();
+console.log(JSON.stringify(health, null, 2));
+```
+
+## Graceful Shutdown
+
+Always close the database properly on application shutdown:
+
+```javascript
+// Handle shutdown signals
+process.on('SIGINT', async () => {
+  console.log('Shutting down gracefully...');
+  
+  try {
+    // Flush all pending writes
+    await db.close();
+    console.log('Database closed successfully');
+    process.exit(0);
+  } catch (error) {
+    console.error('Error during shutdown:', error);
+    process.exit(1);
+  }
+});
+
+process.on('SIGTERM', async () => {
+  console.log('SIGTERM received, closing database...');
+  await db.close();
+  process.exit(0);
+});
+```
+
+The `close()` method:
+- Flushes all pending writes
+- Saves pending updates and deletes
+- Saves database metadata
+- Emits 'close' event
+
+## Maintenance Checklist
+
+<CardGroup cols={2}>
+  <Card title="Daily" icon="calendar-day">
+    - Monitor cache hit rates
+    - Check pending operation counts
+    - Review error logs
+    - Automated backups
+  </Card>
+  
+  <Card title="Weekly" icon="calendar-week">
+    - Review database statistics
+    - Check disk space usage
+    - Verify backup integrity
+    - Rotate old backups
+  </Card>
+  
+  <Card title="Monthly" icon="calendar">
+    - Run full optimization
+    - Audit index usage
+    - Review query performance
+    - Test backup restoration
+  </Card>
+  
+  <Card title="As Needed" icon="wrench">
+    - Apply schema migrations
+    - Tune compaction settings
+    - Adjust cache sizes
+    - Archive old data
+  </Card>
+</CardGroup>
+
+## Best Practices
+
+<Steps>
+  <Step title="Regular backups">
+    Automate daily backups and test restoration procedures
+  </Step>
+  
+  <Step title="Monitor performance">
+    Track cache hit rates and query performance
+  </Step>
+  
+  <Step title="Graceful shutdown">
+    Always call `close()` before application exit
+  </Step>
+  
+  <Step title="Test migrations">
+    Test migrations on a backup before running on production
+  </Step>
+  
+  <Step title="Document procedures">
+    Maintain runbooks for backup and recovery procedures
+  </Step>
+</Steps>
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Performance Optimization" icon="gauge-high" href="/guides/performance-optimization">
+    Optimize database performance
+  </Card>
+  <Card title="CRUD Operations" icon="database" href="/guides/crud-operations">
+    Master data operations
+  </Card>
+</CardGroup>

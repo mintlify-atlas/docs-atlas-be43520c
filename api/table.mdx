@@ -1,0 +1,425 @@
+---
+title: 'Table'
+description: 'Table class for managing records and performing CRUD operations'
+icon: 'table'
+---
+
+The Table class represents a collection of records and provides methods for inserting, querying, updating, and deleting data.
+
+## Automatic Fields
+
+All records automatically include these metadata fields:
+
+- `_id` - Unique identifier (UUID)
+- `_created` - ISO 8601 timestamp of creation
+- `_modified` - ISO 8601 timestamp of last modification
+
+## Methods
+
+### insert(record)
+
+Insert a single record into the table.
+
+```javascript
+const user = users.insert({ 
+  name: 'Alice', 
+  email: 'alice@example.com' 
+});
+// Returns: { _id: '...', name: 'Alice', email: 'alice@example.com', _created: '...', _modified: '...' }
+```
+
+<ParamField path="record" type="object" required>
+  The record to insert. Can optionally include an `id` or `_id` field to specify a custom ID.
+</ParamField>
+
+<ResponseField name="returns" type="object">
+  The inserted record with automatic fields (`_id`, `_created`, `_modified`)
+</ResponseField>
+
+---
+
+### insertMany(records)
+
+Insert multiple records in a single operation.
+
+```javascript
+const users = table.insertMany([
+  { name: 'Alice', email: 'alice@example.com' },
+  { name: 'Bob', email: 'bob@example.com' }
+]);
+```
+
+<ParamField path="records" type="array" required>
+  Array of records to insert
+</ParamField>
+
+<ResponseField name="returns" type="array">
+  Array of inserted records with automatic fields
+</ResponseField>
+
+---
+
+### find(condition)
+
+Find records matching a condition. Returns a Query object for chaining.
+
+```javascript
+const results = await users.find({ status: 'active' })
+  .sort('name', 'asc')
+  .limit(10)
+  .execute();
+```
+
+<ParamField path="condition" type="object | function" required>
+  Query condition as an object or function
+</ParamField>
+
+<ResponseField name="returns" type="Query">
+  Query object for building and executing the query
+</ResponseField>
+
+---
+
+### findOne(condition)
+
+Find the first record matching a condition.
+
+```javascript
+const user = await users.findOne({ email: 'alice@example.com' });
+```
+
+<ParamField path="condition" type="object | function" required>
+  Query condition
+</ParamField>
+
+<ResponseField name="returns" type="Promise<object | null>">
+  The first matching record, or null if not found
+</ResponseField>
+
+---
+
+### findById(id)
+
+Find a record by its ID.
+
+```javascript
+const user = await users.findById('abc-123');
+```
+
+<ParamField path="id" type="string" required>
+  The record ID
+</ParamField>
+
+<ResponseField name="returns" type="Promise<object | null>">
+  The record, or null if not found
+</ResponseField>
+
+---
+
+### all()
+
+Get all records in the table. Returns a Query object.
+
+```javascript
+const allUsers = await users.all().execute();
+```
+
+<ResponseField name="returns" type="Query">
+  Query object representing all records
+</ResponseField>
+
+---
+
+### update(id, changes)
+
+Update a record by ID.
+
+```javascript
+const updated = await users.update('abc-123', { 
+  status: 'inactive' 
+});
+```
+
+<ParamField path="id" type="string" required>
+  The record ID
+</ParamField>
+
+<ParamField path="changes" type="object" required>
+  Object containing the fields to update
+</ParamField>
+
+<ResponseField name="returns" type="Promise<object | null>">
+  The updated record, or null if not found
+</ResponseField>
+
+<Note>
+  The `_modified` field is automatically updated. The `_id` and `_created` fields cannot be changed.
+</Note>
+
+---
+
+### updateMany(condition, changes)
+
+Update multiple records matching a condition.
+
+```javascript
+const updated = await users.updateMany(
+  { status: 'pending' },
+  { status: 'active' }
+);
+```
+
+<ParamField path="condition" type="object" required>
+  Query condition to match records
+</ParamField>
+
+<ParamField path="changes" type="object" required>
+  Object containing the fields to update
+</ParamField>
+
+<ResponseField name="returns" type="Promise<array>">
+  Array of updated records
+</ResponseField>
+
+---
+
+### delete(id)
+
+Delete a record by ID.
+
+```javascript
+const success = await users.delete('abc-123');
+```
+
+<ParamField path="id" type="string" required>
+  The record ID
+</ParamField>
+
+<ResponseField name="returns" type="Promise<boolean>">
+  True if the record was deleted, false if not found
+</ResponseField>
+
+---
+
+### deleteMany(condition)
+
+Delete multiple records matching a condition.
+
+```javascript
+const deleted = await users.deleteMany({ status: 'inactive' });
+```
+
+<ParamField path="condition" type="object" required>
+  Query condition to match records
+</ParamField>
+
+<ResponseField name="returns" type="Promise<array>">
+  Array of deleted records
+</ResponseField>
+
+---
+
+### count(condition)
+
+Count records matching a condition.
+
+```javascript
+const total = await users.count();
+const activeCount = await users.count({ status: 'active' });
+```
+
+<ParamField path="condition" type="object">
+  Optional query condition. If omitted, counts all records.
+</ParamField>
+
+<ResponseField name="returns" type="Promise<number>">
+  Number of matching records
+</ResponseField>
+
+---
+
+### createIndex(field)
+
+Create an index on a field for faster queries.
+
+```javascript
+await users.createIndex('email');
+await users.createIndex('status');
+```
+
+<ParamField path="field" type="string" required>
+  Field name to index
+</ParamField>
+
+<ResponseField name="returns" type="Promise<Table>">
+  Returns the table instance for chaining
+</ResponseField>
+
+<Note>
+  Indices significantly improve query performance on large datasets. The index is automatically maintained as records are added, updated, or deleted.
+</Note>
+
+---
+
+### dropIndex(field)
+
+Remove an index from a field.
+
+```javascript
+users.dropIndex('email');
+```
+
+<ParamField path="field" type="string" required>
+  Field name to remove index from
+</ParamField>
+
+<ResponseField name="returns" type="Table">
+  Returns the table instance for chaining
+</ResponseField>
+
+---
+
+### flush()
+
+Flush pending writes to disk immediately.
+
+```javascript
+await users.flush();
+```
+
+<ResponseField name="returns" type="Promise<void>">
+  Promise that resolves when all pending writes are flushed
+</ResponseField>
+
+---
+
+### truncate()
+
+Delete all records from the table.
+
+```javascript
+await users.truncate();
+```
+
+<ResponseField name="returns" type="Promise<void>">
+  Promise that resolves when the table is empty
+</ResponseField>
+
+<Warning>
+  This operation is irreversible and will delete all records in the table.
+</Warning>
+
+---
+
+### drop()
+
+Permanently delete the table and all its data.
+
+```javascript
+await users.drop();
+```
+
+<ResponseField name="returns" type="Promise<void>">
+  Promise that resolves when the table is dropped
+</ResponseField>
+
+<Warning>
+  This operation is irreversible and will delete the table file.
+</Warning>
+
+## Events
+
+Table extends EventEmitter and emits the following events:
+
+### insert
+
+Emitted when a record is inserted.
+
+```javascript
+users.on('insert', (record) => {
+  console.log('Record inserted:', record._id);
+});
+```
+
+### update
+
+Emitted when a record is updated.
+
+```javascript
+users.on('update', (record) => {
+  console.log('Record updated:', record._id);
+});
+```
+
+### delete
+
+Emitted when a record is deleted.
+
+```javascript
+users.on('delete', (record) => {
+  console.log('Record deleted:', record._id);
+});
+```
+
+### save
+
+Emitted when changes are persisted to disk.
+
+```javascript
+users.on('save', (tableName) => {
+  console.log('Table saved:', tableName);
+});
+```
+
+### truncate
+
+Emitted when the table is truncated.
+
+```javascript
+users.on('truncate', () => {
+  console.log('Table truncated');
+});
+```
+
+### drop
+
+Emitted when the table is dropped.
+
+```javascript
+users.on('drop', () => {
+  console.log('Table dropped');
+});
+```
+
+## Example
+
+```javascript
+const db = new AmoraDB('myapp');
+await db.init();
+
+const users = db.table('users');
+
+// Create an index for better query performance
+await users.createIndex('email');
+
+// Insert records
+users.insert({ name: 'Alice', email: 'alice@example.com', status: 'active' });
+users.insert({ name: 'Bob', email: 'bob@example.com', status: 'active' });
+
+// Query records
+const activeUsers = await users.find({ status: 'active' })
+  .sort('name', 'asc')
+  .execute();
+
+// Update a record
+await users.update(activeUsers[0]._id, { status: 'inactive' });
+
+// Count records
+const count = await users.count({ status: 'active' });
+console.log(`Active users: ${count}`);
+
+// Delete records
+await users.deleteMany({ status: 'inactive' });
+
+await db.close();
+```

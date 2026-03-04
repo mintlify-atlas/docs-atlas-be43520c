@@ -1,97 +1,271 @@
 ---
-title: "Introduction"
-description: "Welcome to the new home for your documentation"
+title: AmoraDB Documentation
+mode: custom
 ---
 
-## Setting up
+<div className="relative overflow-hidden bg-gradient-to-br from-[#0f1117] via-[#1a1d27] to-[#0f1117] dark:from-[#0f1117] dark:via-[#1a1d27] dark:to-[#0f1117] py-20">
+  <div className="max-w-6xl mx-auto px-6 lg:px-8">
+    <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-center">
+      <div className="lg:col-span-7">
+        <h1 className="text-4xl sm:text-5xl lg:text-6xl font-bold text-gray-100 dark:text-gray-100 mb-6">
+          A lightweight NoSQL database for Node.js
+        </h1>
+        <p className="text-lg sm:text-xl text-gray-400 dark:text-gray-400 mb-8 max-w-2xl">
+          File-based document storage with MongoDB-like queries, zero dependencies, and powerful features for modern applications.
+        </p>
+        <div className="flex flex-wrap gap-4">
+          <a
+            href="/quickstart"
+            className="inline-flex items-center justify-center px-6 py-3 text-base font-semibold text-white bg-[#848c8e] hover:bg-[#6a7072] rounded-lg transition-colors no-underline"
+          >
+            Get Started
+          </a>
+          <a
+            href="/api/amoradb"
+            className="inline-flex items-center justify-center px-6 py-3 text-base font-semibold text-gray-100 border border-gray-600 hover:border-[#848c8e] bg-gray-800/30 hover:bg-gray-800/50 rounded-lg transition-colors no-underline"
+          >
+            API Reference
+          </a>
+        </div>
+      </div>
+      <div className="lg:col-span-5 hidden lg:block">
+        <div className="bg-[#1a1d27] dark:bg-[#1a1d27] rounded-2xl p-6 border border-[#27272a] dark:border-[#27272a] shadow-2xl">
+          <pre className="text-sm text-gray-300 dark:text-gray-300 overflow-x-auto"><code>{`const AmoraDB = require('amoradb');
 
-Get your documentation site up and running in minutes.
+const db = new AmoraDB('myapp');
+await db.init();
 
-<Card
-  title="Start here"
-  icon="rocket"
-  href="/quickstart"
-  horizontal
->
-  Follow our three step quickstart guide.
-</Card>
+const users = db.table('users');
 
-## Make it yours
+// Insert records
+users.insert({
+  name: 'Sarah Connor',
+  email: 'sarah@resistance.com',
+  age: 29
+});
 
-Design a docs site that looks great and empowers your users.
+// Query with operators
+const adults = await users
+  .find({ age: { $gte: 18 } })
+  .sort('name', 'asc')
+  .limit(10)
+  .execute();`}</code></pre>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
 
-<Columns cols={2}>
-  <Card
-    title="Edit locally"
-    icon="pen-to-square"
-    href="/development"
-  >
-    Edit your docs locally and preview them in real time.
-  </Card>
-  <Card
-    title="Customize your site"
-    icon="palette"
-    href="/essentials/settings"
-  >
-    Customize the design and colors of your site to match your brand.
-  </Card>
-    <Card
-    title="Set up navigation"
-    icon="map"
-    href="/essentials/navigation"
-  >
-    Organize your docs to help users find what they need and succeed with your product.
-  </Card>
-  <Card
-    title="API documentation"
-    icon="terminal"
-    href="/api-reference/introduction"
-  >
-    Auto-generate API documentation from OpenAPI specifications.
-  </Card>
-</Columns>
+<div className="mt-16 mb-16 max-w-5xl mx-auto px-6">
+  <div className="text-center mb-12">
+    <h2 className="text-3xl font-bold text-gray-900 dark:text-white mb-4">
+      Why AmoraDB?
+    </h2>
+    <p className="text-lg text-gray-600 dark:text-gray-400 max-w-3xl mx-auto">
+      Built for developers who need persistent storage without the overhead of running a database server.
+    </p>
+  </div>
 
-## Create beautiful pages
+  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+    <div className="bg-white dark:bg-[#1a1d27] p-6 rounded-xl border border-gray-200 dark:border-[#27272a]">
+      <div className="w-12 h-12 bg-[#848c8e]/10 dark:bg-[#848c8e]/10 rounded-lg flex items-center justify-center mb-4">
+        <svg className="w-6 h-6 text-[#848c8e]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
+        </svg>
+      </div>
+      <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-2">Zero Dependencies</h3>
+      <p className="text-gray-600 dark:text-gray-400">Runs entirely on Node.js built-ins. No external packages required for core functionality.</p>
+    </div>
 
-Everything you need to create world-class documentation.
+    <div className="bg-white dark:bg-[#1a1d27] p-6 rounded-xl border border-gray-200 dark:border-[#27272a]">
+      <div className="w-12 h-12 bg-[#848c8e]/10 dark:bg-[#848c8e]/10 rounded-lg flex items-center justify-center mb-4">
+        <svg className="w-6 h-6 text-[#848c8e]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 7v10c0 2.21 3.582 4 8 4s8-1.79 8-4V7M4 7c0 2.21 3.582 4 8 4s8-1.79 8-4M4 7c0-2.21 3.582-4 8-4s8 1.79 8 4" />
+        </svg>
+      </div>
+      <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-2">MongoDB-like Queries</h3>
+      <p className="text-gray-600 dark:text-gray-400">Familiar query operators like $eq, $gt, $in, $regex with chainable query builders.</p>
+    </div>
 
-<Columns cols={2}>
-  <Card
-    title="Write with MDX"
-    icon="pen-fancy"
-    href="/essentials/markdown"
-  >
-    Use MDX to style your docs pages.
-  </Card>
-  <Card
-    title="Code samples"
-    icon="code"
-    href="/essentials/code"
-  >
-    Add sample code to demonstrate how to use your product.
-  </Card>
-  <Card
-    title="Images"
-    icon="image"
-    href="/essentials/images"
-  >
-    Display images and other media.
-  </Card>
-  <Card
-    title="Reusable snippets"
-    icon="recycle"
-    href="/essentials/reusable-snippets"
-  >
-    Write once and reuse across your docs.
-  </Card>
-</Columns>
+    <div className="bg-white dark:bg-[#1a1d27] p-6 rounded-xl border border-gray-200 dark:border-[#27272a]">
+      <div className="w-12 h-12 bg-[#848c8e]/10 dark:bg-[#848c8e]/10 rounded-lg flex items-center justify-center mb-4">
+        <svg className="w-6 h-6 text-[#848c8e]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+        </svg>
+      </div>
+      <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-2">File-based Storage</h3>
+      <p className="text-gray-600 dark:text-gray-400">JSONL files on disk with automatic metadata tracking and batched writes.</p>
+    </div>
 
-## Need inspiration?
+    <div className="bg-white dark:bg-[#1a1d27] p-6 rounded-xl border border-gray-200 dark:border-[#27272a]">
+      <div className="w-12 h-12 bg-[#848c8e]/10 dark:bg-[#848c8e]/10 rounded-lg flex items-center justify-center mb-4">
+        <svg className="w-6 h-6 text-[#848c8e]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6" />
+        </svg>
+      </div>
+      <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-2">Performance Optimized</h3>
+      <p className="text-gray-600 dark:text-gray-400">LRU caching, automatic indexing, and smart query optimization for fast lookups.</p>
+    </div>
 
-<Card
-  title="See complete examples"
-  icon="stars"
-  href="https://mintlify.com/customers"
->
-  Browse our showcase of exceptional documentation sites.
-</Card>
+    <div className="bg-white dark:bg-[#1a1d27] p-6 rounded-xl border border-gray-200 dark:border-[#27272a]">
+      <div className="w-12 h-12 bg-[#848c8e]/10 dark:bg-[#848c8e]/10 rounded-lg flex items-center justify-center mb-4">
+        <svg className="w-6 h-6 text-[#848c8e]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 15l-2 5L9 9l11 4-5 2zm0 0l5 5M7.188 2.239l.777 2.897M5.136 7.965l-2.898-.777M13.95 4.05l-2.122 2.122m-5.657 5.656l-2.12 2.122" />
+        </svg>
+      </div>
+      <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-2">Event-Driven</h3>
+      <p className="text-gray-600 dark:text-gray-400">Built on EventEmitter for reactive applications with insert, update, and delete events.</p>
+    </div>
+
+    <div className="bg-white dark:bg-[#1a1d27] p-6 rounded-xl border border-gray-200 dark:border-[#27272a]">
+      <div className="w-12 h-12 bg-[#848c8e]/10 dark:bg-[#848c8e]/10 rounded-lg flex items-center justify-center mb-4">
+        <svg className="w-6 h-6 text-[#848c8e]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
+        </svg>
+      </div>
+      <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-2">Aggregations</h3>
+      <p className="text-gray-600 dark:text-gray-400">Built-in aggregation operations: sum, avg, min, max, count for data analysis.</p>
+    </div>
+  </div>
+</div>
+
+<div className="mt-16 mb-16 max-w-5xl mx-auto px-6">
+  <div className="text-center mb-12">
+    <h2 className="text-3xl font-bold text-gray-900 dark:text-white mb-4">
+      Quick Start
+    </h2>
+    <p className="text-lg text-gray-600 dark:text-gray-400">
+      Get up and running with AmoraDB in minutes
+    </p>
+  </div>
+
+  <Steps>
+    <Step title="Install AmoraDB">
+      Install the package using npm, yarn, or pnpm:
+
+      <CodeGroup>
+      ```bash npm
+      npm install amoradb
+      ```
+
+      ```bash yarn
+      yarn add amoradb
+      ```
+
+      ```bash pnpm
+      pnpm add amoradb
+      ```
+      </CodeGroup>
+    </Step>
+
+    <Step title="Initialize the database">
+      Create a new database instance and initialize it:
+
+      ```javascript
+      const AmoraDB = require('amoradb');
+
+      const db = new AmoraDB('myapp');
+      await db.init();
+      ```
+
+      <Note>
+        The database name determines the directory where data files are stored (default: `./data/myapp`)
+      </Note>
+    </Step>
+
+    <Step title="Create and query a table">
+      Start inserting and querying data:
+
+      ```javascript
+      const users = db.table('users');
+
+      // Insert a record
+      const user = users.insert({
+        name: 'Sarah Connor',
+        email: 'sarah@resistance.com',
+        age: 29
+      });
+
+      // Query with operators
+      const adults = await users
+        .find({ age: { $gte: 18 } })
+        .sort('name', 'asc')
+        .execute();
+
+      console.log(adults);
+      ```
+
+      <Accordion title="Expected output">
+        ```json
+        [
+          {
+            "_id": "550e8400-e29b-41d4-a716-446655440000",
+            "_created": "2024-01-01T00:00:00.000Z",
+            "_modified": "2024-01-01T00:00:00.000Z",
+            "name": "Sarah Connor",
+            "email": "sarah@resistance.com",
+            "age": 29
+          }
+        ]
+        ```
+      </Accordion>
+    </Step>
+
+    <Step title="Clean up">
+      Always close the database when you're done to flush pending writes:
+
+      ```javascript
+      await db.close();
+      ```
+    </Step>
+  </Steps>
+</div>
+
+<div className="mt-16 mb-16 max-w-5xl mx-auto px-6">
+  <div className="text-center mb-12">
+    <h2 className="text-3xl font-bold text-gray-900 dark:text-white mb-4">
+      Explore the Documentation
+    </h2>
+    <p className="text-lg text-gray-600 dark:text-gray-400">
+      Everything you need to build with AmoraDB
+    </p>
+  </div>
+
+  <CardGroup cols={2}>
+    <Card title="Core Concepts" icon="lightbulb" href="/concepts/architecture">
+      Learn about AmoraDB's architecture, storage format, and design principles.
+    </Card>
+    <Card title="CRUD Operations" icon="database" href="/guides/crud-operations">
+      Master creating, reading, updating, and deleting records.
+    </Card>
+    <Card title="Query Language" icon="magnifying-glass" href="/concepts/query-language">
+      Explore MongoDB-like operators and chainable query builders.
+    </Card>
+    <Card title="Indexing" icon="bolt" href="/concepts/indexing">
+      Optimize query performance with automatic hash and sorted indices.
+    </Card>
+    <Card title="Performance" icon="gauge-high" href="/guides/performance-optimization">
+      Learn best practices for caching, indexing, and query optimization.
+    </Card>
+    <Card title="API Reference" icon="code" href="/api/amoradb">
+      Complete API documentation for all classes and methods.
+    </Card>
+  </CardGroup>
+</div>
+
+<div className="mt-20 mb-16 max-w-5xl mx-auto px-6">
+  <div className="bg-gradient-to-r from-[#848c8e] to-[#6a7072] rounded-2xl p-8 md:p-12 text-center">
+    <h2 className="text-3xl font-bold text-white mb-4">
+      Ready to get started?
+    </h2>
+    <p className="text-lg text-gray-100 mb-8 max-w-2xl mx-auto">
+      Follow our quickstart guide to build your first application with AmoraDB in under 5 minutes.
+    </p>
+    <a
+      href="/quickstart"
+      className="inline-flex items-center justify-center px-8 py-3 text-base font-semibold text-[#848c8e] bg-white hover:bg-gray-100 rounded-lg transition-colors no-underline"
+    >
+      View Quickstart Guide
+    </a>
+  </div>
+</div>

@@ -1,0 +1,459 @@
+---
+title: 'Aggregations'
+description: 'Perform calculations and data analysis with AmoraDB aggregation functions'
+icon: 'calculator'
+---
+
+## Overview
+
+AmoraDB provides powerful aggregation capabilities for performing calculations across your data. The `aggregate()` method supports common aggregation operators like sum, average, min, max, and count.
+
+## Basic Aggregations
+
+### aggregate() Method
+
+The `aggregate()` method takes an object where keys are result field names and values are aggregation operations.
+
+```javascript
+const results = await db.table('orders')
+  .find({ status: 'completed' })
+  .aggregate({
+    totalRevenue: { $sum: 'amount' },
+    averageOrder: { $avg: 'amount' },
+    orderCount: { $count: true }
+  });
+
+console.log(results);
+// {
+//   totalRevenue: 125000.50,
+//   averageOrder: 250.00,
+//   orderCount: 500
+// }
+```
+
+## Aggregation Operators
+
+### $sum
+
+Calculate the sum of a numeric field across all matching records.
+
+```javascript
+// Total sales amount
+const result = await db.table('sales')
+  .find({ year: 2024 })
+  .aggregate({
+    totalSales: { $sum: 'amount' }
+  });
+
+console.log(`Total sales: $${result.totalSales}`);
+```
+
+<Tip>
+If a field is missing or undefined in a record, it's treated as 0 for sum calculations.
+</Tip>
+
+### $avg
+
+Calculate the average value of a numeric field.
+
+```javascript
+// Average product rating
+const result = await db.table('products')
+  .find({ category: 'electronics' })
+  .aggregate({
+    averageRating: { $avg: 'rating' }
+  });
+
+console.log(`Average rating: ${result.averageRating.toFixed(2)}`);
+```
+
+### $min
+
+Find the minimum value of a field.
+
+```javascript
+// Lowest price in category
+const result = await db.table('products')
+  .find({ category: 'laptops' })
+  .aggregate({
+    lowestPrice: { $min: 'price' }
+  });
+
+console.log(`Starting at: $${result.lowestPrice}`);
+```
+
+### $max
+
+Find the maximum value of a field.
+
+```javascript
+// Highest temperature recorded
+const result = await db.table('weather')
+  .find({ city: 'New York' })
+  .aggregate({
+    maxTemp: { $max: 'temperature' }
+  });
+
+console.log(`Peak temperature: ${result.maxTemp}°F`);
+```
+
+### $count
+
+Count the number of matching records.
+
+```javascript
+// Count active users
+const result = await db.table('users')
+  .find({ status: 'active' })
+  .aggregate({
+    activeUsers: { $count: true }
+  });
+
+console.log(`Active users: ${result.activeUsers}`);
+```
+
+<Warning>
+For `$count`, the value should be `true`. The field name in the aggregation operation is ignored.
+</Warning>
+
+## Multiple Aggregations
+
+Combine multiple aggregation operations in a single query:
+
+```javascript
+const stats = await db.table('orders')
+  .find({ 
+    status: 'completed',
+    orderDate: { $gte: '2024-01-01' }
+  })
+  .aggregate({
+    totalRevenue: { $sum: 'amount' },
+    averageOrderValue: { $avg: 'amount' },
+    largestOrder: { $max: 'amount' },
+    smallestOrder: { $min: 'amount' },
+    orderCount: { $count: true }
+  });
+
+console.log('2024 Order Statistics:', stats);
+// {
+//   totalRevenue: 500000,
+//   averageOrderValue: 125.50,
+//   largestOrder: 5000,
+//   smallestOrder: 10,
+//   orderCount: 3984
+// }
+```
+
+## Aggregation with Filtering
+
+Use query methods to filter data before aggregation:
+
+<Tabs>
+  <Tab title="With where()">
+    ```javascript
+    const result = await db.table('sales')
+      .find({})
+      .where({ region: 'North' })
+      .where({ year: 2024 })
+      .aggregate({
+        totalSales: { $sum: 'amount' },
+        avgSale: { $avg: 'amount' }
+      });
+    ```
+  </Tab>
+  
+  <Tab title="With Operators">
+    ```javascript
+    const result = await db.table('sales')
+      .find({ 
+        amount: { $gte: 100 },
+        status: 'completed'
+      })
+      .aggregate({
+        highValueTotal: { $sum: 'amount' },
+        count: { $count: true }
+      });
+    ```
+  </Tab>
+  
+  <Tab title="With Complex Conditions">
+    ```javascript
+    const result = await db.table('sales')
+      .find({ 
+        date: { 
+          $gte: '2024-01-01',
+          $lte: '2024-12-31' 
+        },
+        status: { $in: ['completed', 'shipped'] }
+      })
+      .aggregate({
+        yearlyTotal: { $sum: 'amount' }
+      });
+    ```
+  </Tab>
+</Tabs>
+
+## Real-World Examples
+
+### E-commerce Analytics
+
+```javascript
+// Daily sales dashboard
+const today = new Date().toISOString().split('T')[0];
+
+const dailyStats = await db.table('orders')
+  .find({ 
+    orderDate: { $gte: today },
+    status: { $in: ['completed', 'processing'] }
+  })
+  .aggregate({
+    revenue: { $sum: 'total' },
+    orders: { $count: true },
+    avgOrderValue: { $avg: 'total' },
+    largestOrder: { $max: 'total' }
+  });
+
+console.log('Today\'s Dashboard:', dailyStats);
+```
+
+### Product Performance
+
+```javascript
+// Category performance metrics
+const categories = ['electronics', 'clothing', 'home'];
+const performance = {};
+
+for (const category of categories) {
+  performance[category] = await db.table('products')
+    .find({ category })
+    .aggregate({
+      totalSales: { $sum: 'unitsSold' },
+      avgRating: { $avg: 'rating' },
+      avgPrice: { $avg: 'price' },
+      productCount: { $count: true }
+    });
+}
+
+console.log('Category Performance:', performance);
+```
+
+### User Engagement Metrics
+
+```javascript
+// Monthly active user statistics
+const thirtyDaysAgo = new Date();
+thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+
+const engagement = await db.table('users')
+  .find({ 
+    lastLogin: { $gte: thirtyDaysAgo.toISOString() }
+  })
+  .aggregate({
+    activeUsers: { $count: true },
+    avgSessionLength: { $avg: 'sessionDuration' },
+    maxSessionLength: { $max: 'sessionDuration' },
+    totalPageViews: { $sum: 'pageViews' }
+  });
+
+console.log('30-Day Engagement:', engagement);
+```
+
+### Financial Reporting
+
+```javascript
+// Quarterly financial summary
+const q1Start = '2024-01-01';
+const q1End = '2024-03-31';
+
+const financials = await db.table('transactions')
+  .find({
+    date: { $gte: q1Start, $lte: q1End },
+    type: 'revenue'
+  })
+  .aggregate({
+    totalRevenue: { $sum: 'amount' },
+    avgTransaction: { $avg: 'amount' },
+    transactionCount: { $count: true },
+    largestTransaction: { $max: 'amount' }
+  });
+
+console.log('Q1 2024 Financials:', financials);
+```
+
+## Combining with Other Methods
+
+Aggregations work with all query methods:
+
+```javascript
+// Top 100 products by sales, get their average rating
+const topProductsAvg = await db.table('products')
+  .find({ inStock: true })
+  .sort('unitsSold', 'desc')
+  .limit(100)
+  .aggregate({
+    avgRating: { $avg: 'rating' },
+    avgPrice: { $avg: 'price' },
+    totalUnitsSold: { $sum: 'unitsSold' }
+  });
+```
+
+<Tip>
+The `limit()` and `skip()` methods are applied before aggregation, allowing you to aggregate on a subset of data.
+</Tip>
+
+## Performance Considerations
+
+<Steps>
+  <Step title="Filter before aggregating">
+    Use `where()` to reduce the dataset before performing aggregations
+  </Step>
+  
+  <Step title="Create indices on filter fields">
+    If you filter by specific fields, create indices for better performance
+  </Step>
+  
+  <Step title="Use specific queries">
+    Avoid aggregating over entire tables when possible
+  </Step>
+</Steps>
+
+### Efficient Aggregation Example
+
+<CodeGroup>
+
+```javascript Inefficient
+// Aggregates over entire table
+const result = await db.table('orders')
+  .find({})
+  .aggregate({ total: { $sum: 'amount' } });
+```
+
+```javascript Efficient
+// Filters first, then aggregates
+const result = await db.table('orders')
+  .find({ 
+    status: 'completed',
+    year: 2024 
+  })
+  .aggregate({ total: { $sum: 'amount' } });
+```
+
+</CodeGroup>
+
+## Building Analytics Dashboards
+
+Combine multiple aggregations for comprehensive analytics:
+
+```javascript
+async function getDashboardStats() {
+  const tables = db.table('orders');
+  
+  // Overall statistics
+  const overall = await tables
+    .find({ status: 'completed' })
+    .aggregate({
+      totalRevenue: { $sum: 'amount' },
+      totalOrders: { $count: true },
+      avgOrder: { $avg: 'amount' }
+    });
+  
+  // Today's statistics
+  const today = new Date().toISOString().split('T')[0];
+  const todayStats = await tables
+    .find({ 
+      status: 'completed',
+      orderDate: { $gte: today }
+    })
+    .aggregate({
+      todayRevenue: { $sum: 'amount' },
+      todayOrders: { $count: true }
+    });
+  
+  // Last 30 days
+  const thirtyDaysAgo = new Date();
+  thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+  const monthStats = await tables
+    .find({ 
+      status: 'completed',
+      orderDate: { $gte: thirtyDaysAgo.toISOString() }
+    })
+    .aggregate({
+      monthRevenue: { $sum: 'amount' },
+      monthOrders: { $count: true }
+    });
+  
+  return {
+    overall,
+    today: todayStats,
+    last30Days: monthStats
+  };
+}
+
+const dashboard = await getDashboardStats();
+console.log('Dashboard:', dashboard);
+```
+
+## Aggregation Patterns
+
+### Running Totals
+
+```javascript
+// Calculate cumulative sales by category
+const categories = await db.table('products')
+  .find({})
+  .distinct('category');
+
+const categorySales = {};
+for (const category of categories) {
+  const result = await db.table('products')
+    .find({ category })
+    .aggregate({
+      total: { $sum: 'revenue' },
+      units: { $sum: 'unitsSold' }
+    });
+  categorySales[category] = result;
+}
+```
+
+### Time-Based Aggregations
+
+```javascript
+// Monthly revenue trend
+const months = [];
+for (let i = 0; i < 12; i++) {
+  const date = new Date();
+  date.setMonth(date.getMonth() - i);
+  const monthStart = new Date(date.getFullYear(), date.getMonth(), 1);
+  const monthEnd = new Date(date.getFullYear(), date.getMonth() + 1, 0);
+  
+  const result = await db.table('orders')
+    .find({
+      orderDate: {
+        $gte: monthStart.toISOString(),
+        $lte: monthEnd.toISOString()
+      }
+    })
+    .aggregate({
+      revenue: { $sum: 'amount' },
+      orders: { $count: true }
+    });
+  
+  months.push({
+    month: monthStart.toLocaleString('default', { month: 'long', year: 'numeric' }),
+    ...result
+  });
+}
+
+console.log('12-Month Trend:', months);
+```
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Performance Optimization" icon="gauge-high" href="/guides/performance-optimization">
+    Learn how to optimize queries and aggregations
+  </Card>
+  <Card title="CRUD Operations" icon="database" href="/guides/crud-operations">
+    Master data manipulation operations
+  </Card>
+</CardGroup>
